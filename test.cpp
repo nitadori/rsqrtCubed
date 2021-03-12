@@ -1,36 +1,16 @@
 #include <x86intrin.h>
 
-#if 0
-void rsqrtCubed_avx512(const double * __restrict x, double * __restrict y, const int N){
-	const __m512d c1 = _mm512_set1_pd(3./2.);
-	for(int i=0; i<N; i+=8){
-		__m512d r2  = _mm512_loadu_pd(x+i);
-		__m512d r2c = _mm512_mul_pd(r2, c1);
-		__m512d ri1 = _mm512_rsqrt14_pd(r2);
-		__m512d ri2 = _mm512_mul_pd(ri1, ri1);
-		__m512d ri3 = _mm512_mul_pd(ri2, ri1);
-		__m512d hc  = _mm512_fnmadd_pd(r2c, ri2, c1); // c - a * b
-#if 0
-		const __m512d cc = _mm512_set1_pd(5./6.);
-		__m512d hc2 = _mm512_mul_pd(hc, cc);
-#else
-		const __m512d c2 = _mm512_set1_pd(5./4.);
-		__m512d r2c2 = _mm512_mul_pd(r2, c2);
-		__m512d hc2  = _mm512_fnmadd_pd(r2c2, ri2, c2); // c - a * b
-#endif
-		__m512d poly  = _mm512_fmadd_pd(hc, hc2, hc);
-		__m512d ri3p  = _mm512_fmadd_pd(poly, ri3, ri3);
-
-		_mm512_storeu_pd(y+i, ri3p);
-	}
-}
-#else
-// #define RSQRTCUBED_MINLAT
-void rsqrtCubed_avx512(const double * __restrict xs, double * __restrict ys, const int N){
+#define RSQRTCUBED_MINLAT
+void rsqrtCubed_avx512(
+		const double * __restrict xs, 
+		double       * __restrict zs, 
+		const double * __restrict ms, 
+		const int                 N)
+{
 	/*
 	 * x : r^2
 	 * y : r^-1
-	 * z : r^-3
+	 * z : m * r^-3
 	 * z1 := z0 * (1 + ah + bh^2), where
 	 *   a = 3/2
 	 *   b = 15/8
@@ -49,6 +29,7 @@ void rsqrtCubed_avx512(const double * __restrict xs, double * __restrict ys, con
 
 	for(int i=0; i<N; i+=8){
 		__m512d x   = _mm512_loadu_pd(xs + i);
+		__m512d m   = _mm512_loadu_pd(ms + i);
 
 #ifdef RSQRTCUBED_MINLAT
 		__m512d bx  = _mm512_mul_pd(b, x);
@@ -57,8 +38,9 @@ void rsqrtCubed_avx512(const double * __restrict xs, double * __restrict ys, con
 		__m512d y   = _mm512_rsqrt14_pd(x);
 		
 		__m512d y2  = _mm512_mul_pd(y, y);
+		__m512d my  = _mm512_mul_pd(m, y);
 
-		__m512d z   = _mm512_mul_pd(y, y2);
+		__m512d z   = _mm512_mul_pd(my, y2);
 		__m512d h   = _mm512_fnmadd_pd(x,  y2, one); // c - a * b
 #ifdef RSQRTCUBED_MINLAT
 		__m512d abh = _mm512_fnmadd_pd(bx, y2, apb); // c - a * b
@@ -68,12 +50,11 @@ void rsqrtCubed_avx512(const double * __restrict xs, double * __restrict ys, con
 
 		__m512d zh  = _mm512_mul_pd(z, h);
 
-		__m512d zc  = _mm512_fmadd_pd(zh, abh, z);
+		__m512d z1  = _mm512_fmadd_pd(zh, abh, z);
 
-		_mm512_storeu_pd(ys + i, zc);
+		_mm512_storeu_pd(zs + i, z1);
 	}
 }
-#endif
 
 #include<cstdio>
 #include<cstdlib>
@@ -85,17 +66,18 @@ int main(){
 		N = 1000,
 	};
 
-	static double x[N], y0[N], y1[N], err[N] __attribute__((aligned(256)));
+	static double x[N], y0[N], y1[N], mass[N], err[N] __attribute__((aligned(256)));
 
 	srand48(20210309);
 	for(int i=0; i<N; i++){
-		x[i] = std::exp(10.*(drand48() - 0.5));
+		x[i]    = std::exp(10.*(drand48() - 0.5));
+		mass[i] = drand48() + 0.125;
 	}
 	for(int i=0; i<N; i++){
 		double ri = 1.0 / std::sqrt(x[i]);
-		y0[i] = ri * ri * ri;
+		y0[i] = (mass[i] * ri) * (ri * ri);
 	}
-	rsqrtCubed_avx512(x, y1, N);
+	rsqrtCubed_avx512(x, y1, mass, N);
 
 	auto rel_err = [](auto val, auto ref){
 		return (val - ref) / ref;
