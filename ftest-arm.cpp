@@ -22,20 +22,13 @@ void rsqrtCubed_sve(
 
 	const svfloat32_t one  = svdup_f32(1.0);
 	const svfloat32_t b    = svdup_f32(15./8.);
-#ifdef RSQRTCUBED_MINLAT
-	const svfloat32_t apb  = svdup_f32(27./8.);
-#else
 	const svfloat32_t a    = svdup_f32( 3./2.);
-#endif
+
 	svbool_t p0 = svptrue_b32();
 
 	for(int i=0; i<N; i+=16){
 		svfloat32_t x   = svld1_f32(p0, xs + i);
 		svfloat32_t m   = svld1_f32(p0, ms + i);
-
-#ifdef RSQRTCUBED_MINLAT
-		svfloat32_t bx  = svmul_f32_x(p0, b, x);
-#endif
 
 		svfloat32_t y   = svrsqrte_f32(x);
 		
@@ -44,13 +37,14 @@ void rsqrtCubed_sve(
 
 		svfloat32_t z   = svmul_f32_x(p0, my, y2);
 		svfloat32_t h   = svmls_f32_x(p0, one, x,  y2); // a - b * c
-#ifdef RSQRTCUBED_MINLAT
-		svfloat32_t abh = svmls_f32_x(p0, apb, bx, y2); // a - b * c
-#else
-		svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
-#endif
 
 		svfloat32_t zh  = svmul_f32_x(p0, z, h);
+#if 1
+		svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
+#else
+		svfloat32_t abh = svmla_f32_x(p0, a, b, h); // a + b*h
+#endif
+
 
 		// abh    = _mm512_set1_ps( 3./2.);  // force 2nd order
 		
