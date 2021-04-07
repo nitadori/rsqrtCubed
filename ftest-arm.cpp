@@ -1,6 +1,22 @@
+#include <cmath>
 #include <arm_sve.h>
 
-// #define RSQRTCUBED_MINLAT
+__attribute__((noinline))
+void rsqrtCubed_autovec(
+		const float * __restrict xs, 
+		float       * __restrict zs, 
+		const float * __restrict ms, 
+		const int                N)
+{
+	for(int i=0; i<N; i++){
+		float x = xs[i];
+		float m = ms[i];
+		float y = 1.0f / sqrtf(x);
+		float z = (m*y)*(y*y);
+		zs[i] = z;
+	}
+}
+
 __attribute__((noinline))
 void rsqrtCubed_sve(
 		const float * __restrict xs, 
@@ -19,6 +35,12 @@ void rsqrtCubed_sve(
 	 * z1 = z0 + (z0 * h) * (a + b * h)
 	 * a+b*h = (a+b) - (b*x)*y0^2, for minlat mode
 	 */
+	/*
+	 * msb(p,a,b,c) : c - a*b
+	 * mad(p,a,b,c) : c + a*b
+	 * mls(p,a,b,c) : a - b*c
+	 * mla(p,a,b,c) : a + b*c
+	 */
 
 	const svfloat32_t one  = svdup_f32(1.0);
 	const svfloat32_t b    = svdup_f32(15./8.);
@@ -36,7 +58,11 @@ void rsqrtCubed_sve(
 		svfloat32_t my  = svmul_f32_x(p0, m, y);
 
 		svfloat32_t z   = svmul_f32_x(p0, my, y2);
-		svfloat32_t h   = svmls_f32_x(p0, one, x,  y2); // a - b * c
+#if 0
+		svfloat32_t h   = svmls_f32_x(p0, one, x,  y2);
+#else
+		svfloat32_t h   = svmsb_f32_x(p0, x,  y2, one);
+#endif
 
 		svfloat32_t zh  = svmul_f32_x(p0, z, h);
 #if 1
@@ -78,7 +104,7 @@ int main(){
 		double ri = 1.0 / std::sqrt( (double)(x[i]) );
 		y0[i] = (mass[i] * ri) * (ri * ri);
 	}
-	rsqrtCubed_sve(x, y1, mass, N);
+	rsqrtCubed_autovec(x, y1, mass, N);
 
 	auto rel_err = [](auto val, auto ref){
 		return (val - ref) / ref;
@@ -108,7 +134,7 @@ int main(){
 	for(int j=0; j<10; j++){
 		auto tick0 = get_utime();
 		for(int k=0; k<NLOOP; k++){
-			rsqrtCubed_sve(x, y1, mass, N);
+			rsqrtCubed_autovec(x, y1, mass, N);
 		}
 		auto tick1 = get_utime();
 		double dt = tick2second(tick1 - tick0);
