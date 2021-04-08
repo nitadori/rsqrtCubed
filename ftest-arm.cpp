@@ -153,25 +153,32 @@ int main(){
 		double ri = 1.0 / std::sqrt( (double)(x[i]) );
 		y0[i] = (mass[i] * ri) * (ri * ri);
 	}
-	rsqrtCubed_swp(x, y1, mass, N);
+	// rsqrtCubed_autovec(x, y1, mass, N);
 
 	auto rel_err = [](auto val, auto ref){
 		return (val - ref) / ref;
 	};
 
-	double err_max = 0.0, err_min = 0.0;
-	for(int i=0; i<N; i++){
-		err[i] = rel_err(y0[i], y1[i]);
-		// printf("%e %e %e %e\n", x[i], y0[i], y1[i], err[i]);
-		double e = err[i];
-		err_max = std::max(err_max, e);
-		err_min = std::min(err_min, e);
+	auto verify = [=](auto kernel){
+		kernel(x, y1, mass, N);
 
-		if(fabs(e) > 1.e-6){
-			printf("%4d %e %e %e\n", i, e, y1[i], y0[i]);
+		double err_max = 0.0, err_min = 0.0;
+		for(int i=0; i<N; i++){
+			err[i] = rel_err(y0[i], y1[i]);
+			// printf("%e %e %e %e\n", x[i], y0[i], y1[i], err[i]);
+			double e = err[i];
+			err_max = std::max(err_max, e);
+			err_min = std::min(err_min, e);
+
+			if(fabs(e) > 1.e-6){
+				printf("%4d %e %e %e\n", i, e, y1[i], y0[i]);
+			}
 		}
-	}
-	printf("err in [%e, %e]\n", err_min, err_max);
+		printf("err in [%e, %e]\n", err_min, err_max);
+	};
+	verify(rsqrtCubed_autovec);
+	verify(rsqrtCubed_sve);
+	verify(rsqrtCubed_swp);
 
 #if 0
 	std::sort(err, err+N);
@@ -184,17 +191,23 @@ int main(){
 	// time measurement
 	//
 	
-	for(int j=0; j<10; j++){
-		auto tick0 = get_utime();
-		for(int k=0; k<NLOOP; k++){
-			rsqrtCubed_swp(x, y1, mass, N);
+	auto benchmark = [=](auto kernel, int ntimes=10){
+		for(int j=0; j<ntimes; j++){
+			auto tick0 = get_utime();
+			for(int k=0; k<NLOOP; k++){
+				kernel(x, y1, mass, N);
+			}
+			auto tick1 = get_utime();
+			double dt = tick2second(tick1 - tick0);
+			double iter = N/16.0 * NLOOP;
+			double nsec = dt/iter * 1.e9;
+			printf("%f nsec/loop\n", nsec);
 		}
-		auto tick1 = get_utime();
-		double dt = tick2second(tick1 - tick0);
-		double iter = N/16.0 * NLOOP;
-		double nsec = dt/iter * 1.e9;
-		printf("%f nsec/loop\n", nsec);
-	}
+		puts("");
+	};
+	benchmark(rsqrtCubed_autovec);
+	benchmark(rsqrtCubed_sve);
+	benchmark(rsqrtCubed_swp);
 
 	return 0;
 }
