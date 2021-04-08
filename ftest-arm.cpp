@@ -100,7 +100,7 @@ void rsqrtCubed_swp(
 	svfloat32_t s5_abh, s5_zh, s5_z;
 	svfloat32_t s6_z1;
 
-	for(int i=-5*16; i<N; i+=16){
+	for(int i=-6*16; i<N; i+=16){
 		svst1_f32(p0, zs + i, s6_z1);
 
 		s6_z1  = svmad_f32_x(p0, s5_zh, s5_abh, s5_z);
