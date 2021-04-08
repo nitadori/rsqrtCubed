@@ -80,6 +80,50 @@ void rsqrtCubed_sve(
 	}
 }
 
+__attribute__((noinline))
+void rsqrtCubed_swp(
+		const float * __restrict xs, 
+		float       * __restrict zs, 
+		const float * __restrict ms, 
+		const int                N)
+{
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	svbool_t p0 = svptrue_b32();
+
+	svfloat32_t s1_x;
+	svfloat32_t s2_x, s2_y, s2_m;
+	svfloat32_t s3_x, s3_y2, s3_my;
+	svfloat32_t s4_h, s4_z;
+	svfloat32_t s5_abh, s5_zh, s5_z;
+	svfloat32_t s6_z1;
+
+	for(int i=-5*16; i<N; i+=16){
+		svst1_f32(p0, zs + i, s6_z1);
+
+		s6_z1  = svmad_f32_x(p0, s5_zh, s5_abh, s5_z);
+
+		s5_zh  = svmul_f32_x(p0, s4_z, s4_h);
+		s5_abh = svmad_f32_x(p0, b, s4_h, a);
+		s5_z   = s4_z;
+
+		s4_z   = svmul_f32_x(p0, s3_my, s3_y2);
+		s4_h   = svmsb_f32_x (p0, s3_x, s3_y2, one);
+
+		s3_y2  = svmul_f32_x(p0, s2_y, s2_y);
+		s3_my  = svmul_f32_x(p0, s2_m, s2_y);
+		s3_x   = s2_x;
+
+		s2_m   = svld1_f32(p0, ms + (i + 5*16));
+		s2_y   = svrsqrte_f32(s1_x);
+		s2_x   = s1_x;
+
+		s1_x   = svld1_f32(p0, xs + (i + 6*16));
+	}
+}
+
 #include<cstdio>
 #include<cstdlib>
 #include<cmath>
@@ -93,7 +137,12 @@ int main(){
 		NLOOP = 1000,
 	};
 
-	static float x[N], y0[N], y1[N], mass[N], err[N] __attribute__((aligned(256)));
+#if 0
+	static float x[N], y0[N], pad0[128], y1[N], pad1[128], mass[N], err[N] __attribute__((aligned(256)));
+	memcpy(pad0, pad1, 128*4);
+#else
+	static float x[N], y0[N], yy[N+256], *y1=yy+128, mass[N], err[N] __attribute__((aligned(256)));
+#endif
 
 	srand48(20210309);
 	for(int i=0; i<N; i++){
@@ -104,7 +153,7 @@ int main(){
 		double ri = 1.0 / std::sqrt( (double)(x[i]) );
 		y0[i] = (mass[i] * ri) * (ri * ri);
 	}
-	rsqrtCubed_autovec(x, y1, mass, N);
+	rsqrtCubed_swp(x, y1, mass, N);
 
 	auto rel_err = [](auto val, auto ref){
 		return (val - ref) / ref;
@@ -117,6 +166,10 @@ int main(){
 		double e = err[i];
 		err_max = std::max(err_max, e);
 		err_min = std::min(err_min, e);
+
+		if(fabs(e) > 1.e-6){
+			printf("%4d %e %e %e\n", i, e, y1[i], y0[i]);
+		}
 	}
 	printf("err in [%e, %e]\n", err_min, err_max);
 
@@ -134,7 +187,7 @@ int main(){
 	for(int j=0; j<10; j++){
 		auto tick0 = get_utime();
 		for(int k=0; k<NLOOP; k++){
-			rsqrtCubed_autovec(x, y1, mass, N);
+			rsqrtCubed_swp(x, y1, mass, N);
 		}
 		auto tick1 = get_utime();
 		double dt = tick2second(tick1 - tick0);
