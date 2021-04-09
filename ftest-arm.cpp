@@ -100,6 +100,8 @@ void rsqrtCubed_swp(
 	svfloat32_t s5_abh, s5_zh, s5_z;
 	svfloat32_t s6_z1;
 
+	s1_x = svdup_f32(0.0/0.0); // debug
+
 	for(int i=-6*16; i<N; i+=16){
 		svst1_f32(p0, zs + i, s6_z1);
 
@@ -127,6 +129,7 @@ void rsqrtCubed_swp(
 #include<cstdio>
 #include<cstdlib>
 #include<cmath>
+#include<cassert>
 #include<algorithm>
 
 #include "timer.hpp"
@@ -155,27 +158,36 @@ int main(){
 	}
 	// rsqrtCubed_autovec(x, y1, mass, N);
 
-	auto rel_err = [](auto val, auto ref){
+	auto rel_err = [](double val, double ref){
+		assert(ref > 0.0);
 		return (val - ref) / ref;
 	};
 
 	auto verify = [=](auto kernel){
+		for(int i=0; i<N; i++) y1[i] = 0.0/0.0;
 		kernel(x, y1, mass, N);
 
 		double err_max = 0.0, err_min = 0.0;
 		for(int i=0; i<N; i++){
-			err[i] = rel_err(y0[i], y1[i]);
+			double e = rel_err(y1[i], y0[i]);
+			err[i] = e;
 			// printf("%e %e %e %e\n", x[i], y0[i], y1[i], err[i]);
-			double e = err[i];
 			err_max = std::max(err_max, e);
 			err_min = std::min(err_min, e);
 
-			if(fabs(e) > 1.e-6){
-				printf("%4d %e %e %e\n", i, e, y1[i], y0[i]);
+			if(!isfinite(e) || fabs(e) > 1.e-6){
+				printf("%4d %+e %e %e\n", i, e, y1[i], y0[i]);
+				(void)err[i];
 			}
 		}
 		printf("err in [%e, %e]\n", err_min, err_max);
 	};
+#if 0
+	verify(rsqrtCubed_swp);
+	for(int i=0; i<16; i++){
+		printf("%4d %+e %e %e\n", i, err[i], y1[i], y0[i]);
+	}
+#endif
 	verify(rsqrtCubed_autovec);
 	verify(rsqrtCubed_sve);
 	verify(rsqrtCubed_swp);
@@ -192,6 +204,7 @@ int main(){
 	//
 	
 	auto benchmark = [=](auto kernel, int ntimes=10){
+		double nsecs[ntimes];
 		for(int j=0; j<ntimes; j++){
 			auto tick0 = get_utime();
 			for(int k=0; k<NLOOP; k++){
@@ -200,10 +213,13 @@ int main(){
 			auto tick1 = get_utime();
 			double dt = tick2second(tick1 - tick0);
 			double iter = N/16.0 * NLOOP;
-			double nsec = dt/iter * 1.e9;
-			printf("%f nsec/loop\n", nsec);
+			nsecs[j] = dt/iter * 1.e9;
+		}
+		for(int j=0; j<ntimes; j++){
+			printf("%f nsec/loop\n", nsecs[j]);
 		}
 		puts("");
+		fflush(stdout);
 	};
 	benchmark(rsqrtCubed_autovec);
 	benchmark(rsqrtCubed_sve);
