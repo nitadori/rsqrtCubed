@@ -8,6 +8,7 @@ void rsqrtCubed_autovec(
 		const float * __restrict ms, 
 		const int                N)
 {
+#pragma loop unroll 4
 	for(int i=0; i<N; i++){
 		float x = xs[i];
 		float m = ms[i];
@@ -48,6 +49,7 @@ void rsqrtCubed_sve(
 
 	svbool_t p0 = svptrue_b32();
 
+#pragma loop unroll 4
 	for(int i=0; i<N; i+=16){
 		svfloat32_t x   = svld1_f32(p0, xs + i);
 		svfloat32_t m   = svld1_f32(p0, ms + i);
@@ -100,8 +102,7 @@ void rsqrtCubed_swp(
 	svfloat32_t s5_abh, s5_zh, s5_z;
 	svfloat32_t s6_z1;
 
-	s1_x = svdup_f32(0.0/0.0); // debug
-
+#pragma loop unroll 4
 	for(int i=-6*16; i<N; i+=16){
 		svst1_f32(p0, zs + i, s6_z1);
 
@@ -175,7 +176,7 @@ int main(){
 			err_max = std::max(err_max, e);
 			err_min = std::min(err_min, e);
 
-			if(!isfinite(e) || fabs(e) > 1.e-6){
+			if(!std::isfinite(e) || fabs(e) > 1.e-6){
 				printf("%4d %+e %e %e\n", i, e, y1[i], y0[i]);
 				(void)err[i];
 			}
@@ -216,7 +217,12 @@ int main(){
 			nsecs[j] = dt/iter * 1.e9;
 		}
 		for(int j=0; j<ntimes; j++){
+#ifdef __aarch64__ 
+			// Just assume 2.0 GHz of Fugaku
+			printf("%f nsec/loop, %f cycles\n", nsecs[j], 2.0*nsecs[j]);
+#else
 			printf("%f nsec/loop\n", nsecs[j]);
+#endif
 		}
 		puts("");
 		fflush(stdout);
