@@ -74,9 +74,9 @@ void nbody_base(
 		float ax=0, ay=0, az=0;
 
 		for(int j=0; j<n; j++){
-			float dx = body[j].x - xi;
-			float dy = body[j].y - yi;
-			float dz = body[j].z - zi;
+			float dx = xi - body[j].x;
+			float dy = yi - body[j].y;
+			float dz = zi - body[j].z;
 
 			float r2 = eps2 + dx*dx;
 			r2 += dy*dy;
@@ -89,9 +89,9 @@ void nbody_base(
 
 			float mri3 = mri * ri2;
 
-			ax += mri3 * dx;
-			ay += mri3 * dy;
-			az += mri3 * dz;
+			ax -= mri3 * dx;
+			ay -= mri3 * dy;
+			az -= mri3 * dz;
 		}
 		acc[i] = {ax, ay, az};
 	}
@@ -171,7 +171,7 @@ static inline __m512 rsqrtCubed(
 
 	__m512 zh  = _mm512_mul_ps(z, h);
 
-	// abh    = _mm512_set1_ps( 3./2.);  // force 2nd order
+	abh = a;  // force 2nd order
 
 	__m512 z1  = _mm512_fmadd_ps(zh, abh, z);
 
@@ -181,10 +181,43 @@ static inline __m512 rsqrtCubed(
 __attribute__((noinline))
 void nbody_zmm(
 	const int n,
-	const float eps2,
+	const float eps2_ss,
 	const Body body[],
 	Acceleration acc[])
 {
+	const __m512 eps2 = _mm512_set1_ps(eps2_ss);
+
+	for(int i=0; i<n; i+=16){
+		__m512 xi, yi, zi, mi;
+		transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
+
+		__m512 ax, ay, az;
+		ax = ay = az = _mm512_set1_ps(0);
+
+		for(int j=0; j<n; j++){
+			__m512 xj = _mm512_set1_ps(body[j].x);
+			__m512 yj = _mm512_set1_ps(body[j].y);
+			__m512 zj = _mm512_set1_ps(body[j].z);
+			__m512 mj = _mm512_set1_ps(body[j].m);
+
+			__m512 dx = _mm512_sub_ps(xi, xj);
+			__m512 dy = _mm512_sub_ps(yi, yj);
+			__m512 dz = _mm512_sub_ps(zi, zj);
+
+			__m512 r2 = _mm512_fmadd_ps(dx, dx, eps2);
+			       r2 = _mm512_fmadd_ps(dy, dy, r2);
+			       r2 = _mm512_fmadd_ps(dz, dz, r2);
+
+		       __m512 mri3 = rsqrtCubed(r2, mj);
+
+		       ax = _mm512_fnmadd_ps(mri3, dx, ax);
+		       ay = _mm512_fnmadd_ps(mri3, dy, ay);
+		       az = _mm512_fnmadd_ps(mri3, dz, az);
+
+		}
+
+		transpose_3SoAtoAoS(ax, ay, az, acc+i);
+	}
 }
 
 int main(){
@@ -254,9 +287,11 @@ int main(){
 			}
 		}
 		printf("err in [%e, %e]\n", err_min, err_max);
+		puts("");
 	};
 
 	verify(nbody_base);
+	verify(nbody_zmm);
 
 	auto benchmark = [=](auto kernel, int ntimes=20){
 		double nsecs[ntimes];
@@ -286,6 +321,7 @@ int main(){
 	};
 	
 	benchmark(nbody_base);
+	benchmark(nbody_zmm);
 
 	return 0;
 }
