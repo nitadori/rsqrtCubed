@@ -99,13 +99,13 @@ void nbody_base(
 }
 
 static void transpose_4AoStoSoA(
-		void *base,
+		const void *base,
 		__m512 &x,
 		__m512 &y,
 		__m512 &z,
 		__m512 &w)
 {
-	float *p = (float *)base;
+	const float *p = (const float *)base;
 
 	__m512 xyzw_00_03 = _mm512_loadu_ps(p +  0);
 	__m512 xyzw_04_07 = _mm512_loadu_ps(p + 16);
@@ -124,6 +124,16 @@ static void transpose_4AoStoSoA(
 	y = _mm512_permutex2var_ps(x0x4y0y4_, ihi, x8xcy8yc_);
 	z = _mm512_permutex2var_ps(z0z4w0w4_, ilo, z8zcw8wc_);
 	w = _mm512_permutex2var_ps(z0z4w0w4_, ihi, z8zcw8wc_);
+}
+
+static void transpose_3SoAtoAoS(
+		const __m512 xv,
+		const __m512 yv,
+		const __m512 zv,
+		void *base)
+{
+	float *p = (float *)base;
+
 }
 
 __attribute__((noinline))
