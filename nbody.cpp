@@ -134,6 +134,48 @@ static void transpose_3SoAtoAoS(
 {
 	float *p = (float *)base;
 
+	__m512 xylow = _mm512_shuffle_f32x4 (xv, yv, 0b01000100); // 1010(4)
+	__m512 xymid = _mm512_shuffle_f32x4 (xv, yv, 0b10011001); // 2121(4)
+	__m512 xyhig = _mm512_shuffle_f32x4 (xv, yv, 0b11101110); // 3232(4)
+
+	//                              | x, y, z | x, y, z | x, y, z | x, y, z | x, y, z | x, y, z |
+	__m512i ilow = _mm512_setr_epi32( 0, 8,16,  1, 9,17,  2,10,18,  3,11,19,  4,12,20,  5      );
+	__m512i imid = _mm512_setr_epi32(    9,21,  2,10,22,  3,11,23,  4,12,24,  5,13,25,  6,14   );
+	__m512i ihig = _mm512_setr_epi32(      26,  3,11,27,  4,12,28,  5,13,29,  6,14,30,  7,15,31);
+
+	__m512 xyzlow = _mm512_permutex2var_ps(xylow, ilow, zv);
+	__m512 xyzmid = _mm512_permutex2var_ps(xymid, imid, zv);
+	__m512 xyzhig = _mm512_permutex2var_ps(xyhig, ihig, zv);
+
+	_mm512_storeu_ps(p+ 0, xyzlow);
+	_mm512_storeu_ps(p+16, xyzmid);
+	_mm512_storeu_ps(p+32, xyzhig);
+}
+
+static inline __m512 rsqrtCubed(
+		const __m512 x,
+		const __m512 m)
+{
+	const __m512 one  = _mm512_set1_ps(1.0);
+	const __m512 a    = _mm512_set1_ps(3./2.);
+	const __m512 b    = _mm512_set1_ps(15./8.);
+
+	__m512 y   = _mm512_rsqrt14_ps(x);
+
+	__m512 y2  = _mm512_mul_ps(y, y);
+	__m512 my  = _mm512_mul_ps(m, y);
+
+	__m512 z   = _mm512_mul_ps(my, y2);
+	__m512 h   = _mm512_fnmadd_ps(x,  y2, one); // c - a * b
+	__m512 abh = _mm512_fmadd_ps(b, h, a); // a + b*h
+
+	__m512 zh  = _mm512_mul_ps(z, h);
+
+	// abh    = _mm512_set1_ps( 3./2.);  // force 2nd order
+
+	__m512 z1  = _mm512_fmadd_ps(zh, abh, z);
+
+	return z1;
 }
 
 __attribute__((noinline))
