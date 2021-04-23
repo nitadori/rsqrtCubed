@@ -62,7 +62,7 @@ void nbody_ref(
 }
 
 __attribute__((noinline))
-void nbody_base(
+void nbody_ipar(
 	const int n,
 	const float eps2,
 	const Body body[],
@@ -73,6 +73,43 @@ void nbody_base(
 		const float xi=body[i].x, yi=body[i].y, zi=body[i].z;
 		float ax=0, ay=0, az=0;
 
+		for(int j=0; j<n; j++){
+			float dx = xi - body[j].x;
+			float dy = yi - body[j].y;
+			float dz = zi - body[j].z;
+
+			float r2 = eps2 + dx*dx;
+			r2 += dy*dy;
+			r2 += dz*dz;
+
+			float ri = 1.f / sqrtf(r2);
+
+			float mri = body[j].m * ri;
+			float ri2 = ri * ri;
+
+			float mri3 = mri * ri2;
+
+			ax -= mri3 * dx;
+			ay -= mri3 * dy;
+			az -= mri3 * dz;
+		}
+		acc[i] = {ax, ay, az};
+	}
+	return ;
+}
+
+__attribute__((noinline))
+void nbody_jpar(
+	const int n,
+	const float eps2,
+	const Body body[],
+	Acceleration acc[])
+{
+	for(int i=0; i<n; i++){ 
+		const float xi=body[i].x, yi=body[i].y, zi=body[i].z;
+		float ax=0, ay=0, az=0;
+
+#pragma omp simd
 		for(int j=0; j<n; j++){
 			float dx = xi - body[j].x;
 			float dy = yi - body[j].y;
@@ -290,10 +327,11 @@ int main(){
 		puts("");
 	};
 
-	verify(nbody_base);
+	verify(nbody_ipar);
+	verify(nbody_jpar);
 	verify(nbody_zmm);
 
-	auto benchmark = [=](auto kernel, int ntimes=20){
+	auto benchmark = [=](auto kernel, int ntimes=32){
 		double nsecs[ntimes];
 		for(int j=0; j<ntimes; j++){
 			for(int i=0; i<N; i++){
@@ -320,7 +358,8 @@ int main(){
 		fflush(stdout);
 	};
 	
-	benchmark(nbody_base);
+	benchmark(nbody_ipar);
+	benchmark(nbody_ipar);
 	benchmark(nbody_zmm);
 
 	return 0;
