@@ -95,8 +95,12 @@ void rsqrtCubed_preload(
 
 	svbool_t p0 = svptrue_b32();
 
-	svfloat32_t x   = svld1_f32(p0, xs + 0);
-	svfloat32_t m   = svld1_f32(p0, ms + 0);
+	svfloat32_t x  = svld1_f32(p0, xs + 0);
+	svfloat32_t m  = svld1_f32(p0, ms + 0);
+#if 0
+	svfloat32_t xnext = svld1_f32(p0, xs + 16);
+	svfloat32_t mnext = svld1_f32(p0, ms + 16);
+#endif
 #pragma loop unroll 4
 	for(int i=0; i<N; i+=16){
 
@@ -108,8 +112,15 @@ void rsqrtCubed_preload(
 		svfloat32_t z   = svmul_f32_x(p0, my, y2);
 		svfloat32_t h   = svmsb_f32_x(p0, x,  y2, one);
 
-		x   = svld1_f32(p0, xs + (i+16));
-		m   = svld1_f32(p0, ms + (i+16));
+#if 1
+		x = svld1_f32(p0, xs + (i+16));
+		m = svld1_f32(p0, ms + (i+16));
+#else
+		x = xnemxt;
+		m = mnemxt;
+		xnext = svld1_f32(p0, xs + (i+32));
+		mnext = svld1_f32(p0, ms + (i+32));
+#endif
 
 		svfloat32_t zh  = svmul_f32_x(p0, z, h);
 		svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
@@ -118,6 +129,48 @@ void rsqrtCubed_preload(
 
 		svst1_f32(p0, zs + i, z1);
 	}
+} 
+
+__attribute__((noinline))
+void rsqrtCubed_poststore(
+		const float * __restrict xs, 
+		float       * __restrict zs, 
+		const float * __restrict ms, 
+		const int                N)
+{
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	svbool_t p0 = svptrue_b32();
+
+	svfloat32_t x  = svld1_f32(p0, xs + 0);
+	svfloat32_t m  = svld1_f32(p0, ms + 0);
+
+	svfloat32_t zprev  = svdup_f32(1.0);
+#pragma loop unroll 4
+	for(int i=0; i<N; i+=16){
+
+		svfloat32_t y   = svrsqrte_f32(x);
+		
+		svfloat32_t y2  = svmul_f32_x(p0, y, y);
+		svfloat32_t my  = svmul_f32_x(p0, m, y);
+
+		svfloat32_t z   = svmul_f32_x(p0, my, y2);
+		svfloat32_t h   = svmsb_f32_x(p0, x,  y2, one);
+
+		x = svld1_f32(p0, xs + (i+16));
+		m = svld1_f32(p0, ms + (i+16));
+
+		svfloat32_t zh  = svmul_f32_x(p0, z, h);
+		svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
+
+		svfloat32_t z1  = svmad_f32_x(p0, zh, abh, z);
+
+		svst1_f32(p0, zs + (i-16), zprev);
+		zprev = z1;
+	}
+	svst1_f32(p0, zs + (N-16), zprev);
 } 
 
 __attribute__((noinline))
@@ -230,6 +283,7 @@ int main(){
 	verify(rsqrtCubed_autovec);
 	verify(rsqrtCubed_sve);
 	verify(rsqrtCubed_preload);
+	verify(rsqrtCubed_poststore);
 	verify(rsqrtCubed_swp);
 
 #if 0
@@ -269,6 +323,7 @@ int main(){
 	benchmark(rsqrtCubed_autovec);
 	benchmark(rsqrtCubed_sve);
 	benchmark(rsqrtCubed_preload);
+	benchmark(rsqrtCubed_poststore);
 	benchmark(rsqrtCubed_swp);
 
 	return 0;
