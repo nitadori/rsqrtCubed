@@ -230,6 +230,7 @@ void nbody_sve(
 			ay = svmla_f32_x(p0, ay, mri3, dy);
 			az = svmla_f32_x(p0, az, mri3, dz);
 
+			// 17-ops, 8.5-cycle in the best case
 		}
 
 		// transpose_3SoAtoAoS(ax, ay, az, acc+i);
@@ -239,6 +240,91 @@ void nbody_sve(
 		svfloat32x3_t acci = {ax, ay, az};
 #endif
 		svst3_f32(p0, (float *)(acc+i), acci);
+	}
+}
+
+__attribute__((noinline))
+void nbody_ni32(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+	const svfloat32_t eps2 = svdup_f32(eps2_ss);
+
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	const svbool_t p0 = svptrue_b32();
+
+	for(int i=0; i<n; i+=32){
+		svfloat32_t xi_0, yi_0, zi_0;
+		svfloat32_t xi_1, yi_1, zi_1;
+		svfloat32x4_t ibody_0 = svld4_f32(p0, (const float *)(body+i));
+		svfloat32x4_t ibody_1 = svld4_f32(p0, (const float *)(body+(i+16)));
+#if 0
+		xi = svget4_f32(ibody, 0);
+		yi = svget4_f32(ibody, 1);
+		zi = svget4_f32(ibody, 2);
+#else
+		xi_0 = ibody_0.v0;
+		yi_0 = ibody_0.v1;
+		zi_0 = ibody_0.v2;
+		xi_1 = ibody_1.v0;
+		yi_1 = ibody_1.v1;
+		zi_1 = ibody_1.v2;
+#endif
+
+		svfloat32_t ax_0, ay_0, az_0;
+		ax_0 = ay_0 = az_0 = svdup_f32(0);
+		svfloat32_t ax_1, ay_1, az_1;
+		ax_1 = ay_1 = az_1 = svdup_f32(0);
+
+		for(int j=0; j<n; j++){
+			svfloat32_t xj = svdup_f32(body[j].x);
+			svfloat32_t yj = svdup_f32(body[j].y);
+			svfloat32_t zj = svdup_f32(body[j].z);
+			svfloat32_t mj = svdup_f32(body[j].m);
+
+			svfloat32_t dx_0 = svsub_f32_x(p0, xj, xi_0);
+			svfloat32_t dy_0 = svsub_f32_x(p0, yj, yi_0);
+			svfloat32_t dz_0 = svsub_f32_x(p0, zj, zi_0);
+
+			svfloat32_t dx_1 = svsub_f32_x(p0, xj, xi_1);
+			svfloat32_t dy_1 = svsub_f32_x(p0, yj, yi_1);
+			svfloat32_t dz_1 = svsub_f32_x(p0, zj, zi_1);
+
+			svfloat32_t r2_0 = svmad_f32_x(p0, dx_0, dx_0, eps2);
+			r2_0 = svmad_f32_x(p0, dy_0, dy_0, r2_0);
+			r2_0 = svmad_f32_x(p0, dz_0, dz_0, r2_0);
+
+			svfloat32_t r2_1 = svmad_f32_x(p0, dx_1, dx_1, eps2);
+			r2_1 = svmad_f32_x(p0, dy_1, dy_1, r2_1);
+			r2_1 = svmad_f32_x(p0, dz_1, dz_1, r2_1);
+
+
+			svfloat32_t mri3_0 = rsqrtCubed(r2_0, mj, p0, one, a, b);
+			svfloat32_t mri3_1 = rsqrtCubed(r2_1, mj, p0, one, a, b);
+
+			ax_0 = svmla_f32_x(p0, ax_0, mri3_0, dx_0);
+			ay_0 = svmla_f32_x(p0, ay_0, mri3_0, dy_0);
+			az_0 = svmla_f32_x(p0, az_0, mri3_0, dz_0);
+
+			ax_1 = svmla_f32_x(p0, ax_1, mri3_1, dx_1);
+			ay_1 = svmla_f32_x(p0, ay_1, mri3_1, dy_1);
+			az_1 = svmla_f32_x(p0, az_1, mri3_1, dz_1);
+
+			// 17-ops, 8.5-cycle in the best case
+		}
+#if 0
+		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
+#else
+		svfloat32x3_t acci_0 = {ax_0, ay_0, az_0};
+		svfloat32x3_t acci_1 = {ax_1, ay_1, az_1};
+#endif
+		svst3_f32(p0, (float *)(acc+i), acci_0);
+		svst3_f32(p0, (float *)(acc+(i+16)), acci_1);
 	}
 }
 
@@ -315,8 +401,9 @@ int main(){
 	verify(nbody_ipar);
 	verify(nbody_jpar);
 	verify(nbody_sve);
+	verify(nbody_ni32);
 
-	auto benchmark = [=](auto kernel, int ntimes=32){
+	auto benchmark = [=](auto kernel, int ntimes=10){
 		double nsecs[ntimes];
 		for(int j=0; j<ntimes; j++){
 			for(int i=0; i<N; i++){
@@ -334,7 +421,9 @@ int main(){
 		for(int j=0; j<ntimes; j++){
 #ifdef __aarch64__ 
 			// Just assume 2.0 GHz of Fugaku
-			printf("%f nsec/loop, %f cycles\n", nsecs[j], 2.0*nsecs[j]);
+			double cycle = nsecs[j] * 2.0;
+			double eff = 100.0 * 8.5 / cycle;
+			printf("%f nsec/loop, %f cycles, %f%%\n", nsecs[j], cycle, eff);
 #else
 			printf("%f nsec/loop\n", nsecs[j]);
 #endif
@@ -344,8 +433,9 @@ int main(){
 	};
 	
 	benchmark(nbody_ipar);
-	benchmark(nbody_ipar);
+	benchmark(nbody_jpar);
 	benchmark(nbody_sve);
+	benchmark(nbody_ni32);
 
 	return 0;
 }
