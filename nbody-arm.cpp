@@ -136,6 +136,32 @@ void nbody_jpar(
 	return ;
 }
 
+static inline svfloat32_t rsqrtCubed(
+		const svfloat32_t x,
+		const svfloat32_t m,
+		const svbool_t p0,
+		const svfloat32_t one,
+		const svfloat32_t a,
+		const svfloat32_t b)
+{
+	svfloat32_t y   = svrsqrte_f32(x);
+
+	svfloat32_t y2  = svmul_f32_x(p0, y, y);
+	svfloat32_t my  = svmul_f32_x(p0, m, y);
+
+	svfloat32_t z   = svmul_f32_x(p0, my, y2);
+	svfloat32_t h   = svmsb_f32_x(p0, x,  y2, one);
+
+	svfloat32_t zh  = svmul_f32_x(p0, z, h);
+	svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
+
+	svfloat32_t z1 = svmad_f32_x(p0, zh, abh, z);
+
+	// 8 ops
+
+	return z1;
+}
+
 __attribute__((noinline))
 void nbody_sve(
 	const int n,
@@ -183,6 +209,7 @@ void nbody_sve(
 			r2 = svmad_f32_x(p0, dz, dz, r2);
 
 
+#if 0
 			svfloat32_t y   = svrsqrte_f32(r2);
 
 			svfloat32_t y2  = svmul_f32_x(p0, y, y);
@@ -195,6 +222,9 @@ void nbody_sve(
 			svfloat32_t abh = svmad_f32_x(p0, b, h, a); // a + b*h
 
 			svfloat32_t mri3 = svmad_f32_x(p0, zh, abh, z);
+#else
+			svfloat32_t mri3 = rsqrtCubed(r2, mj, p0, one, a, b);
+#endif
 
 			ax = svmla_f32_x(p0, ax, mri3, dx);
 			ay = svmla_f32_x(p0, ay, mri3, dy);
