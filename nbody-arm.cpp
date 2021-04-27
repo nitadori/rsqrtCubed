@@ -181,7 +181,7 @@ void nbody_sve(
 		svfloat32_t xi, yi, zi;
 		// transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
 		svfloat32x4_t ibody = svld4_f32(p0, (const float *)(body+i));
-#if 0
+#if !defined(__FUJITSU)
 		xi = svget4_f32(ibody, 0);
 		yi = svget4_f32(ibody, 1);
 		zi = svget4_f32(ibody, 2);
@@ -234,7 +234,7 @@ void nbody_sve(
 		}
 
 		// transpose_3SoAtoAoS(ax, ay, az, acc+i);
-#if 0
+#if !defined(__FUJITSU)
 		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
 #else
 		svfloat32x3_t acci = {ax, ay, az};
@@ -263,10 +263,13 @@ void nbody_ni32(
 		svfloat32_t xi_1, yi_1, zi_1;
 		svfloat32x4_t ibody_0 = svld4_f32(p0, (const float *)(body+i));
 		svfloat32x4_t ibody_1 = svld4_f32(p0, (const float *)(body+(i+16)));
-#if 0
-		xi = svget4_f32(ibody, 0);
-		yi = svget4_f32(ibody, 1);
-		zi = svget4_f32(ibody, 2);
+#if !defined(__FUJITSU)
+		xi_0 = svget4_f32(ibody_0, 0);
+		yi_0 = svget4_f32(ibody_0, 1);
+		zi_0 = svget4_f32(ibody_0, 2);
+		xi_1 = svget4_f32(ibody_1, 0);
+		yi_1 = svget4_f32(ibody_1, 1);
+		zi_1 = svget4_f32(ibody_1, 2);
 #else
 		xi_0 = ibody_0.v0;
 		yi_0 = ibody_0.v1;
@@ -281,6 +284,7 @@ void nbody_ni32(
 		svfloat32_t ax_1, ay_1, az_1;
 		ax_1 = ay_1 = az_1 = svdup_f32(0);
 
+// #pragma loop unroll 4
 		for(int j=0; j<n; j++){
 			svfloat32_t xj = svdup_f32(body[j].x);
 			svfloat32_t yj = svdup_f32(body[j].y);
@@ -317,8 +321,9 @@ void nbody_ni32(
 
 			// 17-ops, 8.5-cycle in the best case
 		}
-#if 0
-		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
+#if !defined(__FUJITSU)
+		svfloat32x3_t acci_0 = svcreate3_f32(ax_0, ay_0, az_0);
+		svfloat32x3_t acci_1 = svcreate3_f32(ax_1, ay_1, az_1);
 #else
 		svfloat32x3_t acci_0 = {ax_0, ay_0, az_0};
 		svfloat32x3_t acci_1 = {ax_1, ay_1, az_1};
