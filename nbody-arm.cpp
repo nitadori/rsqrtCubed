@@ -162,6 +162,29 @@ static inline svfloat32_t rsqrtCubed(
 	return z1;
 }
 
+#if defined(__FUJITSU)
+// missing intrinsics
+static inline svfloat32_t svget4_f32(svfloat32x4_t v, const int i)
+{
+	switch(i){
+		case 0:
+			return v.v0;
+		case 1:
+			return v.v1;
+		case 2:
+			return v.v2;
+		case 3:
+			return v.v3;
+	}
+	return svdup_f32(0.0f);
+}
+
+static inline svfloat32x3_t svcreate3_f32(svfloat32_t x, svfloat32_t y, svfloat32_t z)
+{
+	return {x, y, z};
+}
+#endif
+
 __attribute__((noinline))
 void nbody_sve(
 	const int n,
@@ -181,15 +204,10 @@ void nbody_sve(
 		svfloat32_t xi, yi, zi;
 		// transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
 		svfloat32x4_t ibody = svld4_f32(p0, (const float *)(body+i));
-#if !defined(__FUJITSU)
+
 		xi = svget4_f32(ibody, 0);
 		yi = svget4_f32(ibody, 1);
 		zi = svget4_f32(ibody, 2);
-#else
-		xi = ibody.v0;
-		yi = ibody.v1;
-		zi = ibody.v2;
-#endif
 
 		svfloat32_t ax, ay, az;
 		ax = ay = az = svdup_f32(0);
@@ -234,14 +252,12 @@ void nbody_sve(
 		}
 
 		// transpose_3SoAtoAoS(ax, ay, az, acc+i);
-#if !defined(__FUJITSU)
 		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
-#else
-		svfloat32x3_t acci = {ax, ay, az};
-#endif
 		svst3_f32(p0, (float *)(acc+i), acci);
 	}
 }
+
+static Body *g_body;
 
 __attribute__((noinline))
 void nbody_ni32(
@@ -333,9 +349,112 @@ void nbody_ni32(
 	}
 }
 
+__attribute__((noinline))
+void nbody_sched(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+	const svfloat32_t eps2 = svdup_f32(eps2_ss);
+
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	const svbool_t p0 = svptrue_b32();
+
+	const Body *body2 = ::g_body;
+
+	for(int i=0; i<n; i+=32){
+		svfloat32_t xi_0, yi_0, zi_0;
+		svfloat32_t xi_1, yi_1, zi_1;
+		svfloat32x4_t ibody_0 = svld4_f32(p0, (const float *)(body+i));
+		svfloat32x4_t ibody_1 = svld4_f32(p0, (const float *)(body+(i+16)));
+#if !defined(__FUJITSU)
+		xi_0 = svget4_f32(ibody_0, 0);
+		yi_0 = svget4_f32(ibody_0, 1);
+		zi_0 = svget4_f32(ibody_0, 2);
+		xi_1 = svget4_f32(ibody_1, 0);
+		yi_1 = svget4_f32(ibody_1, 1);
+		zi_1 = svget4_f32(ibody_1, 2);
+#else
+		xi_0 = ibody_0.v0;
+		yi_0 = ibody_0.v1;
+		zi_0 = ibody_0.v2;
+		xi_1 = ibody_1.v0;
+		yi_1 = ibody_1.v1;
+		zi_1 = ibody_1.v2;
+#endif
+
+		svfloat32_t ax_0, ay_0, az_0;
+		ax_0 = ay_0 = az_0 = svdup_f32(0);
+		svfloat32_t ax_1, ay_1, az_1;
+		ax_1 = ay_1 = az_1 = svdup_f32(0);
+
+// #pragma loop unroll 4
+		for(int j=0; j<n; j++){
+			svfloat32_t xj = svdup_f32(body[j].x);
+			svfloat32_t yj = svdup_f32(body[j].y);
+			svfloat32_t zj = svdup_f32(body[j].z);
+			svfloat32_t mj = svdup_f32(body[j].m);
+
+			svfloat32_t dx_0 = svsub_f32_x(p0, xj, xi_0);
+			svfloat32_t dy_0 = svsub_f32_x(p0, yj, yi_0);
+			svfloat32_t dz_0 = svsub_f32_x(p0, zj, zi_0);
+
+			svfloat32_t dx_1 = svsub_f32_x(p0, xj, xi_1);
+			svfloat32_t dy_1 = svsub_f32_x(p0, yj, yi_1);
+			svfloat32_t dz_1 = svsub_f32_x(p0, zj, zi_1);
+
+			svfloat32_t r2_0 = svmad_f32_x(p0, dx_0, dx_0, eps2);
+			r2_0 = svmad_f32_x(p0, dy_0, dy_0, r2_0);
+			r2_0 = svmad_f32_x(p0, dz_0, dz_0, r2_0);
+
+			svfloat32_t r2_1 = svmad_f32_x(p0, dx_1, dx_1, eps2);
+			r2_1 = svmad_f32_x(p0, dy_1, dy_1, r2_1);
+			r2_1 = svmad_f32_x(p0, dz_1, dz_1, r2_1);
+
+
+			svfloat32_t mri3_0 = rsqrtCubed(r2_0, mj, p0, one, a, b);
+			svfloat32_t mri3_1 = rsqrtCubed(r2_1, mj, p0, one, a, b);
+
+			xj = svdup_f32(body2[j].x);
+			yj = svdup_f32(body2[j].y);
+			zj = svdup_f32(body2[j].z);
+			mj = svdup_f32(body2[j].m);
+
+			dx_0 = svsub_f32_x(p0, xj, xi_0);
+			dy_0 = svsub_f32_x(p0, yj, yi_0);
+			dz_0 = svsub_f32_x(p0, zj, zi_0);
+
+			dx_1 = svsub_f32_x(p0, xj, xi_1);
+			dy_1 = svsub_f32_x(p0, yj, yi_1);
+			dz_1 = svsub_f32_x(p0, zj, zi_1);
+
+			ax_0 = svmla_f32_x(p0, ax_0, mri3_0, dx_0);
+			ay_0 = svmla_f32_x(p0, ay_0, mri3_0, dy_0);
+			az_0 = svmla_f32_x(p0, az_0, mri3_0, dz_0);
+
+			ax_1 = svmla_f32_x(p0, ax_1, mri3_1, dx_1);
+			ay_1 = svmla_f32_x(p0, ay_1, mri3_1, dy_1);
+			az_1 = svmla_f32_x(p0, az_1, mri3_1, dz_1);
+		}
+#if !defined(__FUJITSU)
+		svfloat32x3_t acci_0 = svcreate3_f32(ax_0, ay_0, az_0);
+		svfloat32x3_t acci_1 = svcreate3_f32(ax_1, ay_1, az_1);
+#else
+		svfloat32x3_t acci_0 = {ax_0, ay_0, az_0};
+		svfloat32x3_t acci_1 = {ax_1, ay_1, az_1};
+#endif
+		svst3_f32(p0, (float *)(acc+i), acci_0);
+		svst3_f32(p0, (float *)(acc+(i+16)), acci_1);
+	}
+}
+
 int main(){
 	enum{
-		N = 2048,
+		N = 2*1024,
 	};
 
 	const float eps = 1./256.;
@@ -403,10 +522,13 @@ int main(){
 		puts("");
 	};
 
+	::g_body = body;
+
 	verify(nbody_ipar);
 	verify(nbody_jpar);
 	verify(nbody_sve);
 	verify(nbody_ni32);
+	verify(nbody_sched);
 
 	auto benchmark = [=](auto kernel, int ntimes=10){
 		double nsecs[ntimes];
@@ -441,6 +563,7 @@ int main(){
 	benchmark(nbody_jpar);
 	benchmark(nbody_sve);
 	benchmark(nbody_ni32);
+	benchmark(nbody_sched);
 
 	return 0;
 }
