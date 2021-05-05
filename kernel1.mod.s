@@ -378,18 +378,16 @@ _Z15nbody_ext_inneriDvfPK4BodyP12AccelerationS_S_S_S2_:
 /* #00001 */	ldr	z4, [x29, 34, mul vl]	//  (*)
 /*    107 */	ld1rw	{z25.s}, p0/z, [x3, 32]	//  (*)
 /*     88 */	fsub	z8.s, z29.s, z4.s
-/*    106 */	ldr	s29, [x3, 28]	//  (*)
 /*    ??? */	ld1rw	{z6.s}, p0/z, [x3, 24]	//  (*)
 /* #00001 */	ldr	z0, [x29, 15, mul vl]	//  (*)
 /*     82 */	ld1rw	{z18.s}, p0/z, [x5]	//  (*)
-/*     80 */	ldr	s28, [x5, 8]	//  (*)
 /*     29 */	fmul	z4.s, z10.s, z15.s
 /*     30 */	fmad	z0.s, p0/m, z10.s, z26.s
 /* #00001 */	ldr	z26, [x29, 15, mul vl]	//  (*)
 /*     94 */	fmla	z24.s, p0/m, z7.s, z7.s
 /* #00001 */	ldr	z10, [x29, 16, mul vl]	//  (*)
-/*     80 */	dup	z28.s, z28.s[0]
-/*    106 */	dup	z7.s, z29.s[0]
+/*    ??? */	ld1rw	{z28.s}, p0/z, [x5, 8]	//  (*)
+/*    ??? */	ld1rw	{z7.s}, p0/z, [x3, 28]	//  (*)
 /*    126 */	add	x3, x3, 32
 /*     30 */	fmla	z10.s, p0/m, z2.s, z26.s
 /* #00001 */	ldr	z26, [x29, 34, mul vl]	//  (*)
@@ -397,13 +395,12 @@ _Z15nbody_ext_inneriDvfPK4BodyP12AccelerationS_S_S_S2_:
 /*    115 */	fsub	z12.s, z6.s, z26.s
 /* #00001 */	ldr	z26, [x29, 35, mul vl]	//  (*)
 /*     20 */	frsqrte	z17.s, z11.s
-/*     81 */	ldr	s29, [x5, 12]	//  (*)
 /*     89 */	fsub	z31.s, z28.s, z26.s
 /* #00001 */	ldr	z26, [x29, 13, mul vl]	//  (*)
 /*     96 */	fmad	z8.s, p0/m, z8.s, z26.s
 /*     92 */	fmad	z14.s, p0/m, z14.s, z26.s
 /* #00001 */	ldr	z26, [x29, 36, mul vl]	//  (*)
-/*     81 */	dup	z19.s, z29.s[0]
+/*    ??? */	ld1rw	{z19.s}, p0/z, [x5, 12]	//  (*)
 /*    117 */	fsub	z29.s, z25.s, z26.s
 /*     32 */	fmad	z4.s, p0/m, z0.s, z15.s
 /* #00001 */	ldr	z0, [x29, 11, mul vl]	//  (*)
