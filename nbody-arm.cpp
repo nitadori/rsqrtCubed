@@ -660,7 +660,8 @@ int main(){
 			// Just assume 2.0 GHz of Fugaku
 			double cycle = nsecs[j] * 2.0;
 			double eff = 100.0 * 8.5 / cycle;
-			printf("%f nsec/loop, %f cycles, %f%%\n", nsecs[j], cycle, eff);
+			double Gflops = 38.*16. / nsecs[j];
+			printf("%f nsec/loop, %f cycles, %f%%, %f Gflops\n", nsecs[j], cycle, eff, Gflops);
 #else
 			printf("%f nsec/loop\n", nsecs[j]);
 #endif
