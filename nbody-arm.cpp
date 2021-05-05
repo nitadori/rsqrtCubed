@@ -148,6 +148,7 @@ static inline svfloat32_t rsqrtCubed(
 
 	svfloat32_t y2  = svmul_f32_x(p0, y, y);
 	svfloat32_t my  = svmul_f32_x(p0, m, y);
+	// svfloat32_t my  = svmul_f32_x(p0, y, m);
 
 	svfloat32_t z   = svmul_f32_x(p0, my, y2);
 	svfloat32_t h   = svmsb_f32_x(p0, x,  y2, one);
@@ -218,9 +219,16 @@ void nbody_sve(
 			svfloat32_t zj = svdup_f32(body[j].z);
 			svfloat32_t mj = svdup_f32(body[j].m);
 
+#if 1
 			svfloat32_t dx = svsub_f32_x(p0, xj, xi);
 			svfloat32_t dy = svsub_f32_x(p0, yj, yi);
 			svfloat32_t dz = svsub_f32_x(p0, zj, zi);
+#else
+			asm volatile ("#HERE#");
+			svfloat32_t dx = svsubr_n_f32_x(p0, xi, body[j].x);
+			svfloat32_t dy = svsubr_n_f32_x(p0, yi, body[j].y);
+			svfloat32_t dz = svsubr_n_f32_x(p0, zi, body[j].z);
+#endif
 
 			svfloat32_t r2 = svmad_f32_x(p0, dx, dx, eps2);
 			r2 = svmad_f32_x(p0, dy, dy, r2);
@@ -419,11 +427,13 @@ void nbody_sched(
 			svfloat32_t mri3_0 = rsqrtCubed(r2_0, mj, p0, one, a, b);
 			svfloat32_t mri3_1 = rsqrtCubed(r2_1, mj, p0, one, a, b);
 
+			// load again
 			xj = svdup_f32(body2[j].x);
 			yj = svdup_f32(body2[j].y);
 			zj = svdup_f32(body2[j].z);
 			mj = svdup_f32(body2[j].m);
 
+			// subtract again
 			dx_0 = svsub_f32_x(p0, xj, xi_0);
 			dy_0 = svsub_f32_x(p0, yj, yi_0);
 			dz_0 = svsub_f32_x(p0, zj, zi_0);
@@ -450,6 +460,104 @@ void nbody_sched(
 		svst3_f32(p0, (float *)(acc+i), acci_0);
 		svst3_f32(p0, (float *)(acc+(i+16)), acci_1);
 	}
+}
+
+__attribute__((noinline))
+void nbody_nodup_inner(
+	const int n,
+	const svfloat32_t eps2,
+	const Body body[],
+	Acceleration acc[],
+	const svfloat32_t one,
+	const svfloat32_t a,
+	const svfloat32_t b,
+	const Body body2[],
+	int =0)
+{
+	const svbool_t p0 = svptrue_b32();
+
+	for(int i=0; i<n; i+=16){
+		svfloat32_t xi, yi, zi;
+		// transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
+		svfloat32x4_t ibody = svld4_f32(p0, (const float *)(body+i));
+
+		xi = svget4_f32(ibody, 0);
+		yi = svget4_f32(ibody, 1);
+		zi = svget4_f32(ibody, 2);
+
+		svfloat32_t ax, ay, az;
+		ax = ay = az = svdup_f32(0);
+
+		for(int j=0; j<n; j++){
+			svfloat32_t xj = svdup_f32(body[j].x);
+			svfloat32_t yj = svdup_f32(body[j].y);
+			svfloat32_t zj = svdup_f32(body[j].z);
+			svfloat32_t mj = svdup_f32(body[j].m);
+
+			svfloat32_t dx = svsub_f32_x(p0, xj, xi);
+			svfloat32_t dy = svsub_f32_x(p0, yj, yi);
+			svfloat32_t dz = svsub_f32_x(p0, zj, zi);
+
+			svfloat32_t r2 = svmad_f32_x(p0, dx, dx, eps2);
+			r2 = svmad_f32_x(p0, dy, dy, r2);
+			r2 = svmad_f32_x(p0, dz, dz, r2);
+
+			svfloat32_t mri3 = rsqrtCubed(r2, mj, p0, one, a, b);
+
+			ax = svmla_f32_x(p0, ax, mri3, dx);
+			ay = svmla_f32_x(p0, ay, mri3, dy);
+			az = svmla_f32_x(p0, az, mri3, dz);
+
+			// 17-ops, 8.5-cycle in the best case
+		}
+
+		// transpose_3SoAtoAoS(ax, ay, az, acc+i);
+		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
+		svst3_f32(p0, (float *)(acc+i), acci);
+	}
+}
+
+extern void nbody_ext_inner(
+		const int n,
+		const svfloat32_t eps2,
+		const Body body[],
+		Acceleration acc[],
+		const svfloat32_t one,
+		const svfloat32_t a,
+		const svfloat32_t b,
+		const Body body2[]);
+
+__attribute__((noinline))
+void nbody_nodup(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+
+	const svfloat32_t eps2 = svdup_f32(eps2_ss);
+
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	nbody_ext_inner(n, eps2, body, acc, one, a, b, body);
+}
+
+__attribute__((noinline))
+void nbody_ext(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+	const svfloat32_t eps2 = svdup_f32(eps2_ss);
+
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	nbody_ext_inner(n, eps2, body, acc, one, a, b, body);
 }
 
 int main(){
@@ -524,11 +632,13 @@ int main(){
 
 	::g_body = body;
 
-	verify(nbody_ipar);
-	verify(nbody_jpar);
+	// verify(nbody_ipar);
+	// verify(nbody_jpar);
 	verify(nbody_sve);
+	verify(nbody_nodup);
 	verify(nbody_ni32);
 	verify(nbody_sched);
+	verify(nbody_ext);
 
 	auto benchmark = [=](auto kernel, int ntimes=10){
 		double nsecs[ntimes];
@@ -559,11 +669,13 @@ int main(){
 		fflush(stdout);
 	};
 	
-	benchmark(nbody_ipar);
-	benchmark(nbody_jpar);
+	// benchmark(nbody_ipar);
+	// benchmark(nbody_jpar);
 	benchmark(nbody_sve);
+	benchmark(nbody_nodup);
 	benchmark(nbody_ni32);
 	benchmark(nbody_sched);
+	benchmark(nbody_ext);
 
 	return 0;
 }
