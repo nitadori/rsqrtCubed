@@ -428,11 +428,11 @@ _Z15nbody_ext_inneriDvfPK4BodyP12AccelerationS_S_S_S2_:
 /*    125 */	fmad	z29.s, p0/m, z4.s, z30.s
 /*    123 */	fmad	z12.s, p0/m, z4.s, z13.s
 /*    126 */	add	x5, x5, 32
-/*     79 */	ldr	s30, [x5, -12]	//  (*)
 /*     27 */	fmsb	z11.s, p0/m, z16.s, z8.s
 /*     26 */	fmul	z8.s, z17.s, z16.s
 /*    101 */	bge	.L76 // end of swp_body
 ..LDL287:
+/*     79 */	ldr	s30, [x5, -12]	//  (*)
 /*    121 */	fmad	z28.s, p0/m, z2.s, z27.s
 /*    119 */	fmad	z6.s, p0/m, z2.s, z5.s
 /*    126 */	add	x16, x3, 16
