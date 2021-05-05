@@ -541,7 +541,7 @@ void nbody_nodup(
 	const svfloat32_t b    = svdup_f32(15./8.);
 	const svfloat32_t a    = svdup_f32( 3./2.);
 
-	nbody_ext_inner(n, eps2, body, acc, one, a, b, body);
+	nbody_nodup_inner(n, eps2, body, acc, one, a, b, body);
 }
 
 __attribute__((noinline))
