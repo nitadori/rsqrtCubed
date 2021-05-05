@@ -504,6 +504,17 @@ void nbody_nodup_inner(
 
 			svfloat32_t mri3 = rsqrtCubed(r2, mj, p0, one, a, b);
 
+#if 0
+			xj = svdup_f32(body2[j].x);
+			yj = svdup_f32(body2[j].y);
+			zj = svdup_f32(body2[j].z);
+			mj = svdup_f32(body2[j].m);
+
+			dx = svsub_f32_x(p0, xj, xi);
+			dy = svsub_f32_x(p0, yj, yi);
+			dz = svsub_f32_x(p0, zj, zi);
+#endif
+
 			ax = svmla_f32_x(p0, ax, mri3, dx);
 			ay = svmla_f32_x(p0, ay, mri3, dy);
 			az = svmla_f32_x(p0, az, mri3, dz);
