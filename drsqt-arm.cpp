@@ -12,6 +12,82 @@ void drsqrt_autovec(
 	}
 }
 
+__attribute__((noinline))
+void drsqrt_sve(
+		const double * __restrict xs, 
+		double       * __restrict ys, 
+		const int                N)
+{
+	svbool_t p0 = svptrue_b64();
+
+	const svfloat64_t one  = svdup_f64(1.0);
+	const svfloat64_t c1   = svdup_f64(1./2.);
+	const svfloat64_t c2   = svdup_f64(3./8.);
+	const svfloat64_t c3   = svdup_f64(5./16.);
+	const svfloat64_t c4   = svdup_f64(35./128.);
+	const svfloat64_t c5   = svdup_f64(63./256.);
+	const svfloat64_t c6   = svdup_f64(231./1024.);
+
+#pragma loop unroll 4
+	for(int i=0; i<N; i+=8){
+		svfloat64_t x   = svld1_f64(p0, xs + i);
+		svfloat64_t y   = svrsqrte_f64(x);
+		
+		svfloat64_t y2  = svmul_f64_x(p0, y, y);
+		svfloat64_t h   = svmsb_f64_x(p0, x,  y2, one);
+
+		svfloat64_t d5 = svmad_f64_x(p0, c6, h, c5); // c5 + h*c6
+		svfloat64_t d4 = svmad_f64_x(p0, d5, h, c4); // c4 + h*d5
+		svfloat64_t d3 = svmad_f64_x(p0, d4, h, c3); // c3 + h*d4
+		svfloat64_t d2 = svmad_f64_x(p0, d3, h, c2); // c2 + h*d3
+		svfloat64_t d1 = svmad_f64_x(p0, d2, h, c1); // c1 + h*d2
+
+		svfloat64_t yh  = svmul_f64_x(p0, y, h);
+		svfloat64_t y1  = svmad_f64_x(p0, yh, d1, y);
+
+		svst1_f64(p0, ys + i, y1);
+	}
+}
+
+__attribute__((noinline))
+void drsqrt_sve_thr( // tree-height-reduction
+		const double * __restrict xs, 
+		double       * __restrict ys, 
+		const int                N)
+{
+	svbool_t p0 = svptrue_b64();
+
+	const svfloat64_t one  = svdup_f64(1.0);
+	const svfloat64_t c1   = svdup_f64(1./2.);
+	const svfloat64_t c2   = svdup_f64(3./8.);
+	const svfloat64_t c3   = svdup_f64(5./16.);
+	const svfloat64_t c4   = svdup_f64(35./128.);
+	const svfloat64_t c5   = svdup_f64(63./256.);
+	const svfloat64_t c6   = svdup_f64(231./1024.);
+
+#pragma loop unroll 4
+	for(int i=0; i<N; i+=8){
+		svfloat64_t x   = svld1_f64(p0, xs + i);
+		svfloat64_t y   = svrsqrte_f64(x);
+		
+		svfloat64_t y2  = svmul_f64_x(p0, y, y);
+		svfloat64_t h   = svmsb_f64_x(p0, x,  y2, one);
+
+		svfloat64_t d5 = svmad_f64_x(p0, c6, h, c5); // c5 + h*c6
+		svfloat64_t d3 = svmad_f64_x(p0, c4, h, c3); // c3 + h*c4
+		svfloat64_t d1 = svmad_f64_x(p0, c2, h, c1); // c1 + h*c2
+		svfloat64_t h2  = svmul_f64_x(p0, h, h);
+
+		svfloat64_t e3 = svmad_f64_x(p0, d5, h2, d3); // d3 + h^2*d5
+		svfloat64_t e1 = svmad_f64_x(p0, e3, h2, d1); // d1 + h^2*e5
+
+		svfloat64_t yh  = svmul_f64_x(p0, y, h);
+		svfloat64_t y1  = svmad_f64_x(p0, yh, e1, y);
+
+		svst1_f64(p0, ys + i, y1);
+	}
+}
+
 #include<cstdio>
 #include<cstdlib>
 #include<cmath>
@@ -63,6 +139,8 @@ int main(){
 	};
 
 	verify(drsqrt_autovec);
+	verify(drsqrt_sve);
+	verify(drsqrt_sve_thr);
 
 	auto benchmark = [=](auto kernel, int ntimes=10){
 		double nsecs[ntimes];
@@ -89,6 +167,8 @@ int main(){
 	};
 
 	benchmark(drsqrt_autovec);
+	benchmark(drsqrt_sve);
+	benchmark(drsqrt_sve_thr);
 
 	return 0;
 }

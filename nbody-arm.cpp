@@ -265,6 +265,64 @@ void nbody_sve(
 	}
 }
 
+__attribute__((noinline))
+void nbody_addr(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+	const svfloat32_t eps2 = svdup_f32(eps2_ss);
+
+	const svfloat32_t one  = svdup_f32(1.0);
+	const svfloat32_t b    = svdup_f32(15./8.);
+	const svfloat32_t a    = svdup_f32( 3./2.);
+
+	const svbool_t p0 = svptrue_b32();
+
+	const float *addr = (const float *)(body - 1);
+
+	for(int i=0; i<n; i+=16){
+		svfloat32_t xi, yi, zi;
+		// transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
+		svfloat32x4_t ibody = svld4_f32(p0, (const float *)(body+i));
+
+		xi = svget4_f32(ibody, 0);
+		yi = svget4_f32(ibody, 1);
+		zi = svget4_f32(ibody, 2);
+
+		svfloat32_t ax, ay, az;
+		ax = ay = az = svdup_f32(0);
+
+		for(int j=0; j<n; j++, addr+=4){
+			svfloat32_t xj = svdup_f32(addr[4]);
+			svfloat32_t yj = svdup_f32(addr[5]);
+			svfloat32_t zj = svdup_f32(addr[6]);
+			svfloat32_t mj = svdup_f32(addr[7]);
+
+			svfloat32_t dx = svsub_f32_x(p0, xj, xi);
+			svfloat32_t dy = svsub_f32_x(p0, yj, yi);
+			svfloat32_t dz = svsub_f32_x(p0, zj, zi);
+
+			svfloat32_t r2 = svmad_f32_x(p0, dx, dx, eps2);
+			r2 = svmad_f32_x(p0, dy, dy, r2);
+			r2 = svmad_f32_x(p0, dz, dz, r2);
+
+			svfloat32_t mri3 = rsqrtCubed(r2, mj, p0, one, a, b);
+
+			ax = svmla_f32_x(p0, ax, mri3, dx);
+			ay = svmla_f32_x(p0, ay, mri3, dy);
+			az = svmla_f32_x(p0, az, mri3, dz);
+
+			// 17-ops, 8.5-cycle in the best case
+		}
+
+		// transpose_3SoAtoAoS(ax, ay, az, acc+i);
+		svfloat32x3_t acci = svcreate3_f32(ax, ay, az);
+		svst3_f32(p0, (float *)(acc+i), acci);
+	}
+}
+
 static Body *g_body;
 
 __attribute__((noinline))
