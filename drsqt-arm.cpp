@@ -13,6 +13,40 @@ void drsqrt_autovec(
 }
 
 __attribute__((noinline))
+void drsqrt_nr(
+		const double * __restrict xs, 
+		double       * __restrict ys, 
+		const int                N)
+{
+	svbool_t p0 = svptrue_b64();
+
+	const svfloat64_t half   = svdup_f64(1./2.);
+
+	svfloat64_t x   = svld1_f64(p0, xs + 0);
+#pragma loop unroll 4
+	for(int i=0; i<N; i+=8){
+		// svfloat64_t x   = svld1_f64(p0, xs + i);
+		svfloat64_t x2  = svmul_f64_x(p0, x, half);
+		svfloat64_t y   = svrsqrte_f64(x);
+		x   = svld1_f64(p0, &xs[i+8]);
+
+		svfloat64_t y2  = svmul_f64_x(p0, y, y);
+		svfloat64_t h2  = svmsb_f64_x(p0, x2,  y2, half);
+		y  = svmad_f64_x(p0, y, h2, y);
+
+		y2  = svmul_f64_x(p0, y, y);
+		h2  = svmsb_f64_x(p0, x2,  y2, half);
+		y  = svmad_f64_x(p0, y, h2, y);
+
+		y2  = svmul_f64_x(p0, y, y);
+		h2  = svmsb_f64_x(p0, x2,  y2, half);
+		y  = svmad_f64_x(p0, y, h2, y);
+
+		svst1_f64(p0, ys + i, y);
+	}
+}
+
+__attribute__((noinline))
 void drsqrt_sve(
 		const double * __restrict xs, 
 		double       * __restrict ys, 
@@ -28,13 +62,16 @@ void drsqrt_sve(
 	const svfloat64_t c5   = svdup_f64(63./256.);
 	const svfloat64_t c6   = svdup_f64(231./1024.);
 
+	svfloat64_t x   = svld1_f64(p0, xs + 0);
 #pragma loop unroll 4
 	for(int i=0; i<N; i+=8){
-		svfloat64_t x   = svld1_f64(p0, xs + i);
+		// svfloat64_t x   = svld1_f64(p0, xs + i);
 		svfloat64_t y   = svrsqrte_f64(x);
 		
 		svfloat64_t y2  = svmul_f64_x(p0, y, y);
 		svfloat64_t h   = svmsb_f64_x(p0, x,  y2, one);
+		x   = svld1_f64(p0, &xs[i+8]);
+		svfloat64_t yh  = svmul_f64_x(p0, y, h);
 
 		svfloat64_t d5 = svmad_f64_x(p0, c6, h, c5); // c5 + h*c6
 		svfloat64_t d4 = svmad_f64_x(p0, d5, h, c4); // c4 + h*d5
@@ -42,7 +79,6 @@ void drsqrt_sve(
 		svfloat64_t d2 = svmad_f64_x(p0, d3, h, c2); // c2 + h*d3
 		svfloat64_t d1 = svmad_f64_x(p0, d2, h, c1); // c1 + h*d2
 
-		svfloat64_t yh  = svmul_f64_x(p0, y, h);
 		svfloat64_t y1  = svmad_f64_x(p0, yh, d1, y);
 
 		svst1_f64(p0, ys + i, y1);
@@ -65,13 +101,16 @@ void drsqrt_sve_thr( // tree-height-reduction
 	const svfloat64_t c5   = svdup_f64(63./256.);
 	const svfloat64_t c6   = svdup_f64(231./1024.);
 
+	svfloat64_t x   = svld1_f64(p0, xs + 0);
 #pragma loop unroll 4
 	for(int i=0; i<N; i+=8){
-		svfloat64_t x   = svld1_f64(p0, xs + i);
+		// svfloat64_t x   = svld1_f64(p0, xs + i);
 		svfloat64_t y   = svrsqrte_f64(x);
 		
 		svfloat64_t y2  = svmul_f64_x(p0, y, y);
 		svfloat64_t h   = svmsb_f64_x(p0, x,  y2, one);
+		x   = svld1_f64(p0, &xs[i+8]);
+		svfloat64_t yh  = svmul_f64_x(p0, y, h);
 
 		svfloat64_t d5 = svmad_f64_x(p0, c6, h, c5); // c5 + h*c6
 		svfloat64_t d3 = svmad_f64_x(p0, c4, h, c3); // c3 + h*c4
@@ -81,7 +120,6 @@ void drsqrt_sve_thr( // tree-height-reduction
 		svfloat64_t e3 = svmad_f64_x(p0, d5, h2, d3); // d3 + h^2*d5
 		svfloat64_t e1 = svmad_f64_x(p0, e3, h2, d1); // d1 + h^2*e5
 
-		svfloat64_t yh  = svmul_f64_x(p0, y, h);
 		svfloat64_t y1  = svmad_f64_x(p0, yh, e1, y);
 
 		svst1_f64(p0, ys + i, y1);
@@ -139,6 +177,7 @@ int main(){
 	};
 
 	verify(drsqrt_autovec);
+	verify(drsqrt_nr);
 	verify(drsqrt_sve);
 	verify(drsqrt_sve_thr);
 
@@ -167,6 +206,7 @@ int main(){
 	};
 
 	benchmark(drsqrt_autovec);
+	benchmark(drsqrt_nr);
 	benchmark(drsqrt_sve);
 	benchmark(drsqrt_sve_thr);
 
