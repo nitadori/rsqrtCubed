@@ -42,7 +42,7 @@ void drsqrt_nr(
 		h2  = svmsb_f64_x(p0, x2,  y2, half);
 		y  = svmad_f64_x(p0, y, h2, y);
 
-		svst1_f64(p0, ys + i, y);
+		svst1_f64(p0, ys + i, y); // 12 instructions
 	}
 }
 
@@ -81,7 +81,7 @@ void drsqrt_sve(
 
 		svfloat64_t y1  = svmad_f64_x(p0, yh, d1, y);
 
-		svst1_f64(p0, ys + i, y1);
+		svst1_f64(p0, ys + i, y1); // 11 instructions
 	}
 }
 
@@ -122,7 +122,7 @@ void drsqrt_sve_thr( // tree-height-reduction
 
 		svfloat64_t y1  = svmad_f64_x(p0, yh, e1, y);
 
-		svst1_f64(p0, ys + i, y1);
+		svst1_f64(p0, ys + i, y1); // 12 instructions
 	}
 }
 
