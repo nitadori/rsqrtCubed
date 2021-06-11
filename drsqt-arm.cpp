@@ -47,6 +47,37 @@ void drsqrt_nr(
 }
 
 __attribute__((noinline))
+void drsqrt_arm(
+		const double * __restrict xs, 
+		double       * __restrict ys, 
+		const int                N)
+{
+	svbool_t p0 = svptrue_b64();
+
+	svfloat64_t x   = svld1_f64(p0, xs + 0);
+#pragma loop unroll 4
+	for(int i=0; i<N; i+=8){
+		// svfloat64_t x   = svld1_f64(p0, xs + i);
+		svfloat64_t y   = svrsqrte_f64(x);
+
+		svfloat64_t y2  = svmul_f64_x(p0, y, y);
+		svfloat64_t cc  = svrsqrts_f64(y2, x);
+		y  = svmul_f64_x(p0, y, cc);
+
+		y2  = svmul_f64_x(p0, y, y);
+		cc  = svrsqrts_f64(x, y2);
+		y   = svmul_f64_x(p0, y, cc);
+
+		y2  = svmul_f64_x(p0, y, y);
+		cc  = svrsqrts_f64(x, y2);
+		x   = svld1_f64(p0, &xs[i+8]);
+		y   = svmul_f64_x(p0, y, cc);
+
+		svst1_f64(p0, ys + i, y);
+	}
+}
+
+__attribute__((noinline))
 void drsqrt_sve(
 		const double * __restrict xs, 
 		double       * __restrict ys, 
@@ -178,6 +209,7 @@ int main(){
 
 	verify(drsqrt_autovec);
 	verify(drsqrt_nr);
+	verify(drsqrt_arm);
 	verify(drsqrt_sve);
 	verify(drsqrt_sve_thr);
 
@@ -207,6 +239,7 @@ int main(){
 
 	benchmark(drsqrt_autovec);
 	benchmark(drsqrt_nr);
+	benchmark(drsqrt_arm);
 	benchmark(drsqrt_sve);
 	benchmark(drsqrt_sve_thr);
 
