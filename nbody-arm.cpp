@@ -702,7 +702,7 @@ int main(){
 	::g_body = body;
 
 	// verify(nbody_ipar);
-	// verify(nbody_jpar);
+	verify(nbody_jpar);
 	verify(nbody_sve);
 	verify(nbody_nodup);
 	verify(nbody_ni32);
@@ -740,7 +740,7 @@ int main(){
 	};
 	
 	// benchmark(nbody_ipar);
-	// benchmark(nbody_jpar);
+	benchmark(nbody_jpar);
 	benchmark(nbody_sve);
 	benchmark(nbody_nodup);
 	benchmark(nbody_ni32);
