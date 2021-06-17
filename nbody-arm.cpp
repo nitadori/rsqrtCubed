@@ -136,6 +136,50 @@ void nbody_jpar(
 	return ;
 }
 
+__attribute__((noinline))
+void nbody_jparSoA(
+	const int n,
+	const float eps2,
+	const Body body[],
+	Acceleration acc[])
+{
+	float x[n], y[n], z[n], m[n];
+	for(int i=0; i<n; i++){ 
+		x[i] = body[i].x;
+		y[i] = body[i].y;
+		z[i] = body[i].z;
+		m[i] = body[i].m;
+	}
+	for(int i=0; i<n; i++){ 
+		const float xi=body[i].x, yi=body[i].y, zi=body[i].z;
+		float ax=0, ay=0, az=0;
+
+#pragma omp simd
+		for(int j=0; j<n; j++){
+			float dx = xi - x[j];
+			float dy = yi - y[j];
+			float dz = zi - z[j];
+
+			float r2 = eps2 + dx*dx;
+			r2 += dy*dy;
+			r2 += dz*dz;
+
+			float ri = 1.f / sqrtf(r2);
+
+			float mri = m[j] * ri;
+			float ri2 = ri * ri;
+
+			float mri3 = mri * ri2;
+
+			ax -= mri3 * dx;
+			ay -= mri3 * dy;
+			az -= mri3 * dz;
+		}
+		acc[i] = {ax, ay, az};
+	}
+	return ;
+}
+
 static inline svfloat32_t rsqrtCubed(
 		const svfloat32_t x,
 		const svfloat32_t m,
@@ -703,8 +747,9 @@ int main(){
 
 	// verify(nbody_ipar);
 	verify(nbody_jpar);
+	verify(nbody_jparSoA);
 	verify(nbody_sve);
-	verify(nbody_nodup);
+	// verify(nbody_nodup);
 	verify(nbody_ni32);
 	verify(nbody_sched);
 	verify(nbody_ext);
@@ -741,8 +786,9 @@ int main(){
 	
 	// benchmark(nbody_ipar);
 	benchmark(nbody_jpar);
+	benchmark(nbody_jparSoA);
 	benchmark(nbody_sve);
-	benchmark(nbody_nodup);
+	// benchmark(nbody_nodup);
 	benchmark(nbody_ni32);
 	benchmark(nbody_sched);
 	benchmark(nbody_ext);
