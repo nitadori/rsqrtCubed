@@ -1,3 +1,8 @@
+/*
+ * To compile:
+ * icpc -fast -qopt-zmm-usage=high -openmp nbody.cpp -S
+ * icpx -fopenmp nbody.s
+ */
 #include <x86intrin.h>
 
 #include<cstdio>
@@ -267,7 +272,7 @@ void nbody_zmmomp(
 	const __m512 eps2 = _mm512_set1_ps(eps2_ss);
 
 // KMP_AFFINITY=granularity=fine,compact
-// KMP_NUM_THREADS=2
+// OMP_NUM_THREADS=2
 #pragma omp parallel for
 	for(int i=0; i<n; i+=16){
 		__m512 xi, yi, zi, mi;
@@ -377,7 +382,18 @@ int main(){
 	verify(nbody_zmm);
 	verify(nbody_zmmomp);
 
-	auto benchmark = [=](auto kernel, int ntimes=32){
+	auto warmup = [=](auto kernel, int ntimes=100){
+		for(int j=0; j<ntimes; j++){
+			kernel(N, eps2, body, acc);
+		}
+	};
+
+	warmup(nbody_ipar);
+	warmup(nbody_jpar);
+	warmup(nbody_zmm);
+	warmup(nbody_zmmomp);
+
+	auto benchmark = [=](auto kernel, int ntimes=10){
 		double nsecs[ntimes];
 		for(int j=0; j<ntimes; j++){
 			for(int i=0; i<N; i++){
@@ -397,7 +413,10 @@ int main(){
 			// Just assume 2.0 GHz of Fugaku
 			printf("%f nsec/loop, %f cycles\n", nsecs[j], 2.0*nsecs[j]);
 #else
-			printf("%f nsec/loop\n", nsecs[j]);
+			double cycle = nsecs[j] * 2.0;
+			double eff = 100.0 * 8.0 / cycle;
+			double Gflops = 38.*16. / nsecs[j];
+			printf("%f nsec/loop, %f cycles, %f%%, %f Gflops\n", nsecs[j], cycle, eff, Gflops);
 #endif
 		}
 		puts("");
