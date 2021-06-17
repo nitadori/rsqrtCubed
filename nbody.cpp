@@ -257,6 +257,51 @@ void nbody_zmm(
 	}
 }
 
+__attribute__((noinline))
+void nbody_zmmomp(
+	const int n,
+	const float eps2_ss,
+	const Body body[],
+	Acceleration acc[])
+{
+	const __m512 eps2 = _mm512_set1_ps(eps2_ss);
+
+// KMP_AFFINITY=granularity=fine,compact
+// KMP_NUM_THREADS=2
+#pragma omp parallel for
+	for(int i=0; i<n; i+=16){
+		__m512 xi, yi, zi, mi;
+		transpose_4AoStoSoA(body+i, xi, yi, zi, mi);
+
+		__m512 ax, ay, az;
+		ax = ay = az = _mm512_set1_ps(0);
+
+		for(int j=0; j<n; j++){
+			__m512 xj = _mm512_set1_ps(body[j].x);
+			__m512 yj = _mm512_set1_ps(body[j].y);
+			__m512 zj = _mm512_set1_ps(body[j].z);
+			__m512 mj = _mm512_set1_ps(body[j].m);
+
+			__m512 dx = _mm512_sub_ps(xi, xj);
+			__m512 dy = _mm512_sub_ps(yi, yj);
+			__m512 dz = _mm512_sub_ps(zi, zj);
+
+			__m512 r2 = _mm512_fmadd_ps(dx, dx, eps2);
+			       r2 = _mm512_fmadd_ps(dy, dy, r2);
+			       r2 = _mm512_fmadd_ps(dz, dz, r2);
+
+		       __m512 mri3 = rsqrtCubed(r2, mj);
+
+		       ax = _mm512_fnmadd_ps(mri3, dx, ax);
+		       ay = _mm512_fnmadd_ps(mri3, dy, ay);
+		       az = _mm512_fnmadd_ps(mri3, dz, az);
+
+		}
+
+		transpose_3SoAtoAoS(ax, ay, az, acc+i);
+	}
+}
+
 int main(){
 	enum{
 		N = 2048,
@@ -330,6 +375,7 @@ int main(){
 	verify(nbody_ipar);
 	verify(nbody_jpar);
 	verify(nbody_zmm);
+	verify(nbody_zmmomp);
 
 	auto benchmark = [=](auto kernel, int ntimes=32){
 		double nsecs[ntimes];
@@ -361,6 +407,7 @@ int main(){
 	benchmark(nbody_ipar);
 	benchmark(nbody_ipar);
 	benchmark(nbody_zmm);
+	benchmark(nbody_zmmomp);
 
 	return 0;
 }
