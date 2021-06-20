@@ -15,13 +15,13 @@ void nbody(
 	Acceleration acc[])
 {
 	for(int i=0; i<n; i++){ 
-		const float xi=body[i].x, yi=body[i].y, zi=body[i].z;
+		float xi=body[i].x, yi=body[i].y, zi=body[i].z;
 		float ax=0, ay=0, az=0;
 
 		for(int j=0; j<n; j++){
-			float dx = xi - body[j].x;
-			float dy = yi - body[j].y;
-			float dz = zi - body[j].z;
+			float dx = body[j].x - xi;
+			float dy = body[j].y - yi;
+			float dz = body[j].z - zi;
 
 			float r2 = eps2 + dx*dx;
 			r2 += dy*dy;
@@ -34,9 +34,9 @@ void nbody(
 
 			float mri3 = mri * ri2;
 
-			ax -= mri3 * dx;
-			ay -= mri3 * dy;
-			az -= mri3 * dz;
+			ax += mri3 * dx;
+			ay += mri3 * dy;
+			az += mri3 * dz;
 		}
 		acc[i] = {ax, ay, az};
 	}
