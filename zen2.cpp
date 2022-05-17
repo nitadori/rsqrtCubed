@@ -127,7 +127,7 @@ void nbody_m256d(
 		transpose_4ymm_pd(xi, yi, zi, mi);
 
 		__m256d ax, ay, az, pot;
-		ax = ay = az = _mm256_set1_pd(0);
+		ax = ay = az = pot = _mm256_set1_pd(0);
 
 		for(int j=0; j<n; j+=2){
 			__m256d dx_0 = _mm256_sub_pd(xi, _mm256_set1_pd(body[j+0].x));
@@ -275,18 +275,25 @@ int main(){
 		};
 
 		double err_max = 0.0, err_min = 1.0;
+		double dp_max = 0.0, dp_min = 1.0;
 		for(int i=0; i<N; i++){
 			double e = rel_err(acc[i], dbl_acc[i]);
+			double dp = fabs(acc[i].pot - dbl_acc[i].pot);
 			// err[i] = e;
 			// printf("%e %e %e %e\n", x[i], y0[i], y1[i], err[i]);
 			err_max = std::max(err_max, e);
 			err_min = std::min(err_min, e);
+			dp_max = std::max(dp_max, dp);
+			dp_min = std::min(dp_min, dp);
 
 			if(!std::isfinite(e) || fabs(e) > 1.e-5){
 				printf("%4d %+e (%e %e %e)\n", i, e, acc[i].ax, acc[i].ay, acc[i].az);
 			}
+			if(!std::isfinite(dp) || fabs(dp) > 1.e-5){
+				printf("%4d %+e (%e %e)\n", i, dp, acc[i].pot, dbl_acc[i].pot);
+			}
 		}
-		printf("err in [%e, %e]\n", err_min, err_max);
+		printf("err in [%e, %e], perr in [%e, %e]\n", err_min, err_max, dp_min, dp_max);
 		puts("");
 	};
 
