@@ -200,6 +200,9 @@ int main(){
 	}
 }
 #endif
+
+
+#if 0
 int main(){
 	__attribute__((aligned(64)))
 	double x[8], y[8];
@@ -215,3 +218,79 @@ int main(){
 		printf("%e\n", err);
 	}
 }
+#endif
+
+#if 1
+int main(){
+	enum{
+		N = 2048,
+	};
+
+	const double eps = 1./256.;
+	const double eps2 = eps*eps;
+
+	static Body          body    [N];
+	static Acceleration  acc     [N];
+	static Body          dbl_body[N];
+	static Acceleration  dbl_acc [N];
+
+	srand48(20220517);
+	for(int i=0; i<N; i++){
+		body[i].x = drand48() - 0.5;
+		body[i].y = drand48() - 0.5;
+		body[i].z = drand48() - 0.5;
+		body[i].m = (1./N) * (drand48() + 0.5);
+
+		const Body &b = body[i];
+		dbl_body[i] = {b.x, b.y, b.z, b.m};
+	}
+
+	nbody_ref(N, eps2, dbl_body, dbl_acc);
+
+	auto verify = [=](auto kernel){
+		kernel(N, eps2, body, acc);
+
+		double fx=0, fy=0, fz=0, ff=0;
+		for(int i=0; i<N; i++){
+			auto norm = [](auto x, auto y, auto z){
+				return std::sqrt(x*x + y*y + z*z);
+			};
+			fx += (double)body[i].m * acc[i].ax;
+			fy += (double)body[i].m * acc[i].ay;
+			fz += (double)body[i].m * acc[i].az;
+			ff += (double)body[i].m * norm(acc[i].ax, acc[i].ay, acc[i].az);
+		}
+
+		printf("(%e, %e, %e) : %e\n", fx, fy, fz, ff);
+
+		auto rel_err = [](auto val, auto ref){
+			double dx = val.ax - ref.ax;
+			double dy = val.ay - ref.ay;
+			double dz = val.az - ref.az;
+
+			double num = dx*dx + dy*dy + dz*dz;
+			double den = ref.ax*ref.ax + ref.ay*ref.ay + ref.az*ref.az;
+
+			return sqrt(num / den);
+		};
+
+		double err_max = 0.0, err_min = 1.0;
+		for(int i=0; i<N; i++){
+			double e = rel_err(acc[i], dbl_acc[i]);
+			// err[i] = e;
+			// printf("%e %e %e %e\n", x[i], y0[i], y1[i], err[i]);
+			err_max = std::max(err_max, e);
+			err_min = std::min(err_min, e);
+
+			if(!std::isfinite(e) || fabs(e) > 1.e-5){
+				printf("%4d %+e (%e %e %e)\n", i, e, acc[i].ax, acc[i].ay, acc[i].az);
+			}
+		}
+		printf("err in [%e, %e]\n", err_min, err_max);
+		puts("");
+	};
+
+	verify(nbody_m256d);
+}
+#endif
+
