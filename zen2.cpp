@@ -5,7 +5,7 @@
 #include<cmath>
 #include<algorithm>
 
-// #include "timer.hpp"
+#include "timer.hpp"
 
 struct Body{
 	double x, y, z, m;
@@ -291,6 +291,49 @@ int main(){
 	};
 
 	verify(nbody_m256d);
+
+	auto warmup = [=](auto kernel, int ntimes=100){
+		for(int j=0; j<ntimes; j++){
+			kernel(N, eps2, body, acc);
+		}
+	};
+
+	warmup(nbody_m256d);
+
+	auto benchmark = [=](auto kernel, int ntimes=10){
+		double nsecs[ntimes];
+		for(int j=0; j<ntimes; j++){
+			for(int i=0; i<N; i++){
+				acc[i] = {0,0,0};
+			}
+
+			auto tick0 = get_utime();
+			kernel(N, eps2, body, acc);
+			auto tick1 = get_utime();
+
+			double dt = tick2second(tick1 - tick0);
+			double iter = N/4.0 * N;
+			nsecs[j] = dt/iter * 1.e9;
+		}
+		for(int j=0; j<ntimes; j++){
+#ifdef __aarch64__ 
+			// Just assume 2.0 GHz of Fugaku
+			printf("%f nsec/loop, %f cycles\n", nsecs[j], 2.0*nsecs[j]);
+#else
+			double cycle = nsecs[j] * 4.3; // 4.3 GHz?
+			double eff = 100.0 * 11.25 / cycle; // 22.5 fp-inst/loop?
+			double Gflops = 38.*4. / nsecs[j];
+			printf("%f nsec/loop, %f cycles, %f%%, %f Gflops\n", nsecs[j], cycle, eff, Gflops);
+#endif
+		}
+		puts("");
+		fflush(stdout);
+	};
+	
+	benchmark(nbody_m256d);
+	benchmark(nbody_ref);
+
+	return 0;
 }
 #endif
 
