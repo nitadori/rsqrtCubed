@@ -63,6 +63,121 @@ void transpose_4ymm_pd(__m256d &r0, __m256d &r1, __m256d &r2, __m256d &r3){
 	r3 = _mm256_permute2f128_pd(tmp1, tmp3, (1)+(3<<4));
 }
 
+inline void rsqrt_nr_2ymm_pd(__m256d &x0, __m256d &x1){
+	const __m256 half = _mm256_set1_ps(0.5f);
+	const __m256 c1p5 = _mm256_set1_ps(1.5f);
+
+	__m128 lo = _mm256_cvtpd_ps(x0);
+	__m128 hi = _mm256_cvtpd_ps(x1);
+
+	__m256 x = _mm256_set_m128(hi, lo);
+	__m256 y = _mm256_rsqrt_ps(x);
+	__m256 xh = _mm256_mul_ps(x, half); 
+	__m256 y2 = _mm256_mul_ps(y, y); 
+	__m256 p  = _mm256_fnmadd_ps(xh, y2, c1p5);
+
+	y = _mm256_mul_ps(y, p); 
+
+	lo = _mm256_extractf128_ps(y, 0);
+	hi = _mm256_extractf128_ps(y, 1);
+	
+	x0 = _mm256_cvtps_pd(lo);
+	x1 = _mm256_cvtps_pd(hi);
+}
+
+inline __m256d rsqrtCubed(
+		const __m256d x,
+		const __m256d y,
+		const __m256d m)
+{
+	const __m256d one  = _mm256_set1_pd(1.0);
+	const __m256d a    = _mm256_set1_pd(3./2.);
+	const __m256d b    = _mm256_set1_pd(15./8.);
+
+	__m256d y2  = _mm256_mul_pd(y, y);
+	__m256d my  = _mm256_mul_pd(m, y);
+
+	__m256d z   = _mm256_mul_pd(my, y2);
+	__m256d h   = _mm256_fnmadd_pd(x,  y2, one); // c - a * b
+	__m256d abh = _mm256_fmadd_pd(b, h, a); // a + b*h
+
+	__m256d zh  = _mm256_mul_pd(z, h);
+
+	// abh = a;  // force 2nd order
+
+	__m256d z1  = _mm256_fmadd_pd(zh, abh, z);
+
+	return z1;
+}
+
+__attribute__((noinline))
+void nbody_m256d(
+	const int n,
+	const double eps2_sd,
+	const Body body[],
+	Acceleration acc[])
+{
+	const __m256d eps2 = _mm256_set1_pd(eps2_sd);
+
+	for(int i=0; i<n; i+=4){
+		__m256d xi = _mm256_load_pd(&body[i+0].x);
+		__m256d yi = _mm256_load_pd(&body[i+1].x);
+		__m256d zi = _mm256_load_pd(&body[i+2].x);
+		__m256d mi = _mm256_load_pd(&body[i+3].x);
+		transpose_4ymm_pd(xi, yi, zi, mi);
+
+		__m256d ax, ay, az, pot;
+		ax = ay = az = _mm256_set1_pd(0);
+
+		for(int j=0; j<n; j+=2){
+			__m256d dx_0 = _mm256_sub_pd(xi, _mm256_set1_pd(body[j+0].x));
+			__m256d dy_0 = _mm256_sub_pd(yi, _mm256_set1_pd(body[j+0].y));
+			__m256d dz_0 = _mm256_sub_pd(zi, _mm256_set1_pd(body[j+0].z));
+			__m256d mj_0 = _mm256_set1_pd(body[j+0].m);
+
+			__m256d r2_0  = 
+				_mm256_fmadd_pd(dz_0, dz_0, 
+					_mm256_fmadd_pd(dy_0, dy_0,
+						_mm256_fmadd_pd(dx_0, dx_0, eps2)));
+
+			__m256d dx_1 = _mm256_sub_pd(xi, _mm256_set1_pd(body[j+1].x));
+			__m256d dy_1 = _mm256_sub_pd(yi, _mm256_set1_pd(body[j+1].y));
+			__m256d dz_1 = _mm256_sub_pd(zi, _mm256_set1_pd(body[j+1].z));
+			__m256d mj_1 = _mm256_set1_pd(body[j+1].m);
+
+			__m256d r2_1  = 
+				_mm256_fmadd_pd(dz_1, dz_1, 
+					_mm256_fmadd_pd(dy_1, dy_1,
+						_mm256_fmadd_pd(dx_1, dx_1, eps2)));
+
+			__m256d rinv_0 = r2_0;
+			__m256d rinv_1 = r2_1;
+			rsqrt_nr_2ymm_pd(rinv_0, rinv_1);
+
+		       __m256d mri3_0 = rsqrtCubed(r2_0, rinv_0, mj_0);
+
+		       ax  = _mm256_fnmadd_pd(mri3_0, dx_0, ax);
+		       ay  = _mm256_fnmadd_pd(mri3_0, dy_0, ay);
+		       az  = _mm256_fnmadd_pd(mri3_0, dz_0, az);
+		       pot = _mm256_fnmadd_pd(mri3_0, r2_0, pot);
+
+		       __m256d mri3_1 = rsqrtCubed(r2_1, rinv_1, mj_1);
+
+		       ax  = _mm256_fnmadd_pd(mri3_1, dx_1, ax);
+		       ay  = _mm256_fnmadd_pd(mri3_1, dy_1, ay);
+		       az  = _mm256_fnmadd_pd(mri3_1, dz_1, az);
+		       pot = _mm256_fnmadd_pd(mri3_1, r2_1, pot);
+		}
+
+		transpose_4ymm_pd(ax, ay, az, pot);
+		_mm256_store_pd(&acc[i+0].ax, ax);
+		_mm256_store_pd(&acc[i+1].ax, ay);
+		_mm256_store_pd(&acc[i+2].ax, az);
+		_mm256_store_pd(&acc[i+3].ax, pot);
+	}
+}
+
+#if 0
 int main(){
 	__attribute__((aligned(64)))
 	double a[4][4] = {
@@ -83,7 +198,20 @@ int main(){
 		for(auto c : b)  printf("%f, ", c);
 		puts("");
 	}
+}
+#endif
+int main(){
+	__attribute__((aligned(64)))
+	double x[8], y[8];
 
+	srand48(20220517);
+	for(int i=0; i<8; i++){
+		x[i] = y[i] = drand48() * drand48();
+	}
+	rsqrt_nr_2ymm_pd(*(__m256d *)&y[0], *(__m256d *)&y[4]);
 
-
+	for(int i=0; i<8; i++){
+		auto err = 1.0 - x[i]*(y[i]*y[i]);
+		printf("%e\n", err);
+	}
 }
