@@ -3,10 +3,22 @@
 #include <cstring>
 #include <algorithm>
 
-__attribute__((noinline))
-static double pcut(double u0){
+// __attribute__((noinline))
+// __attribute__((always_inline))
+inline double pcut(double u0){
 	using F = decltype(u0);
-	double u  = std::min(F(2), u0);
+#if 0
+	using std::min;
+	using std::max;
+#elif 1
+	auto min = fmin;
+	auto max = fmax;
+#else
+	auto min = [](auto a, auto b) { return a<b ? a : b; };
+	auto max = [](auto a, auto b) { return a>b ? a : b; };
+#endif
+
+	double u  = min(F(2), u0);
 	double u2 = u*u;
 
 	double pl = fma(u, -3, 9);
@@ -16,7 +28,7 @@ static double pcut(double u0){
 	
 	double pr = fma(u, 4, 2);
 
-	double usub = std::max(F(0), u-1);
+	double usub = max(F(0), u-1);
 	double usub2 = usub  * usub;
 	double usub4 = usub2 * usub2;
 	double usub5 = usub  * usub4;
@@ -26,10 +38,21 @@ static double pcut(double u0){
 	return F(1./30.) * sum;
 } 
 
-__attribute__((noinline))
-static double acut(double u0){
+// __attribute__((noinline))
+// __attribute__((always_inline))
+inline double acut(double u0){
 	using F = decltype(u0);
-	double u  = std::min(F(2), u0);
+#if 0
+	using std::min;
+	using std::max;
+#elif 1
+	auto min = fmin;
+	auto max = fmax;
+#else
+	auto min = [](auto a, auto b) { return a<b ? a : b; };
+	auto max = [](auto a, auto b) { return a>b ? a : b; };
+#endif
+	double u  = min(F(2), u0);
 	double u2 = u*u;
 	double u3 = u*u2;
 
@@ -40,7 +63,7 @@ static double acut(double u0){
 	double pr = fma(u, 20, 8);
 	pr = fma(pr, u, 2);
 
-	double usub = std::max(F(0), u-1);
+	double usub = max(F(0), u-1);
 	double usub2 = usub  * usub;
 	double usub4 = usub2 * usub2;
 
@@ -49,11 +72,61 @@ static double acut(double u0){
 	return F(1./30.) * sum;
 }
 
+struct Body{
+	double x, y, z, m;
+};
+
+struct Acceleration{
+	double ax, ay, az, pot;
+};
+
+__attribute__((noinline))
+void nbody_spline_ref(
+	const int n,
+	const double epsinv,
+	const Body body[],
+	Acceleration acc[])
+{
+	for(int i=0; i<n; i++){ 
+		const double xi=body[i].x, yi=body[i].y, zi=body[i].z;
+		double ax=0, ay=0, az=0, pot=0;
+
+		for(int j=0; j<n; j++){
+			double dx = body[j].x - xi;
+			double dy = body[j].y - yi;
+			double dz = body[j].z - zi;
+
+			double r2 = dx*dx + dy*dy + dz*dz;
+
+			double ri = 1.0 / sqrt(r2);
+
+			double mri = body[j].m * ri;
+			double ri2 = ri * ri;
+
+			double mri3 = mri * ri2;
+
+			double u = r2 * ri * epsinv;
+
+			mri3 *= acut(u);
+			mri  *= pcut(u);
+
+			ax += mri3 * dx;
+			ay += mri3 * dy;
+			az += mri3 * dz;
+			pot -= mri;
+		}
+		acc[i] = {ax, ay, az, pot};
+	}
+	return ;
+}
+
+
+#if 1
 void prlong(long l){
 	l <<= 32;
 	double d;
 	memcpy(&d, &l, 8);
-	printf("%x : %f\n", l, d);
+	printf("%lx : %f\n", l>>32, d);
 }
 
 int main(){
@@ -71,7 +144,8 @@ int main(){
 		double f = pcut(u);
 		double g = acut(u);
 
-		printf("%f %f %f %A\n", u, f, f*30, f*30);
-		printf("%f %f %f %A\n", u, g, g*30, g*30);
+		printf("%f\t%f\t%f\t%A\n", u, f, f*30, f*30);
+		printf("%f\t%f\t%f\t%A\n", u, g, g*30, g*30);
 	}
 }
+#endif
