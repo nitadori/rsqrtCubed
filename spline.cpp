@@ -5,6 +5,8 @@
 #include <cassert>
 #include <algorithm>
 
+#include <x86intrin.h>
+
 #include "timer.hpp"
 
 // __attribute__((noinline))
@@ -204,6 +206,166 @@ void nbody_spline_list(
 	return ;
 }
 
+inline void transpose_4ymm_pd(__m256d &r0, __m256d &r1, __m256d &r2, __m256d &r3){
+	__m256d tmp0 = _mm256_unpacklo_pd(r0, r1); // | r12 | r02 | r10 | r00 |
+	__m256d tmp1 = _mm256_unpackhi_pd(r0, r1); // | r13 | r03 | r11 | r01 |
+	__m256d tmp2 = _mm256_unpacklo_pd(r2, r3); // | r32 | r22 | r30 | r20 |
+	__m256d tmp3 = _mm256_unpackhi_pd(r2, r3); // | r33 | r23 | r31 | r21 |
+	r0 = _mm256_permute2f128_pd(tmp0, tmp2, (0)+(2<<4));
+	r1 = _mm256_permute2f128_pd(tmp1, tmp3, (0)+(2<<4));
+	r2 = _mm256_permute2f128_pd(tmp0, tmp2, (1)+(3<<4));
+	r3 = _mm256_permute2f128_pd(tmp1, tmp3, (1)+(3<<4));
+}
+
+inline __m256d rsqrtCubed_x5(
+		const __m256d x,
+		const __m256d m)
+{
+	const __m256d one  = _mm256_set1_pd(1.0);
+	const __m256d a  = _mm256_set1_pd(  3./ 2.);
+	const __m256d b  = _mm256_set1_pd( 15./ 8.);
+	const __m256d c  = _mm256_set1_pd( 35./ 16.);
+	const __m256d d  = _mm256_set1_pd(315./128.);
+
+	__m256d y = _mm256_cvtps_pd(
+			_mm_rsqrt_ps(
+				_mm256_cvtpd_ps(x)));
+
+	__m256d y2  = _mm256_mul_pd(y, y);
+	__m256d my  = _mm256_mul_pd(m, y);
+
+	__m256d z   = _mm256_mul_pd(my, y2);
+	__m256d h   = _mm256_fnmadd_pd(x,  y2, one); // c - a * b
+
+	__m256d poly = _mm256_fmadd_pd(d, h, c); // d*h + c
+	poly = _mm256_fmadd_pd(poly, h, b); // (d*h + c)*h + b
+	poly = _mm256_fmadd_pd(poly, h, a); // ((d*h + c)*h + b)*h + a
+
+	__m256d zh  = _mm256_mul_pd(z, h);
+
+	__m256d z1  = _mm256_fmadd_pd(zh, poly, z);
+
+	return z1;
+}
+
+__attribute__((noinline))
+void nbody_spline_m256d(
+	const int n,
+	const double rcut2_sd, // = 4 eps^2
+	const double epsinv,
+	const Body body[],
+	Acceleration acc[])
+{
+	enum{ LEN = 64, };
+	int list[4][LEN];
+
+	const __m256d rcut2 = _mm256_set1_pd(rcut2_sd);
+
+	for(int i=0; i<n; i+=4){
+		__m256d xi = _mm256_load_pd(&body[i+0].x);
+		__m256d yi = _mm256_load_pd(&body[i+1].x);
+		__m256d zi = _mm256_load_pd(&body[i+2].x);
+		__m256d mi = _mm256_load_pd(&body[i+3].x);
+		transpose_4ymm_pd(xi, yi, zi, mi);
+
+		__m256d ax, ay, az, pot;
+		ax = ay = az = pot = _mm256_set1_pd(0);
+
+		int n0, n1, n2, n3;
+		n0 = n1 = n2 = n3 = 0;;
+
+		for(int j=0; j<n; j+=1){
+			__m256d dx = _mm256_sub_pd(xi, _mm256_set1_pd(body[j+0].x));
+			__m256d dy = _mm256_sub_pd(yi, _mm256_set1_pd(body[j+0].y));
+			__m256d dz = _mm256_sub_pd(zi, _mm256_set1_pd(body[j+0].z));
+			__m256d mj = _mm256_set1_pd(body[j+0].m);
+
+			__m256d r2  = 
+				_mm256_fmadd_pd(dz, dz, 
+					_mm256_fmadd_pd(dy, dy,
+						_mm256_mul_pd(dx, dx)));
+
+		       __m256d mask = _mm256_cmp_pd(r2, rcut2, _CMP_LT_OQ);
+
+		       __m256d mri3 = rsqrtCubed_x5(r2, mj);
+
+		       mri3 = _mm256_andnot_pd(mask, mri3);
+
+		       ax  = _mm256_fnmadd_pd(mri3, dx, ax);
+		       ay  = _mm256_fnmadd_pd(mri3, dy, ay);
+		       az  = _mm256_fnmadd_pd(mri3, dz, az);
+		       pot = _mm256_fnmadd_pd(mri3, r2, pot);
+
+		       int m = _mm256_movemask_pd(mask);
+		       if(m){
+			       if(m&1){
+				       list[0][n0++%LEN] = j;
+			       }
+			       if(m&2){
+				       list[1][n1++%LEN] = j;
+			       }
+			       if(m&4){
+				       list[2][n2++%LEN] = j;
+			       }
+			       if(m&8){
+				       list[3][n3++%LEN] = j;
+			       }
+		       }
+		}
+
+		transpose_4ymm_pd(ax, ay, az, pot);
+		_mm256_store_pd(&acc[i+0].ax, ax);
+		_mm256_store_pd(&acc[i+1].ax, ay);
+		_mm256_store_pd(&acc[i+2].ax, az);
+		_mm256_store_pd(&acc[i+3].ax, pot);
+
+		int ns[4] = {n0, n1, n2, n3};
+		for(int ii=0; ii<4; ii++){
+			int num = ns[ii];
+			assert(num <= LEN);
+
+			double xi = body[i+ii].x;
+			double yi = body[i+ii].y;
+			double zi = body[i+ii].z;
+
+			double ax=0, ay=0, az=0, pot=0;
+
+			for(int jj=0; jj<num; jj++){
+				int j = list[ii][jj];
+
+				double dx = body[j].x - xi;
+				double dy = body[j].y - yi;
+				double dz = body[j].z - zi;
+
+				double r2 = dx*dx + dy*dy + dz*dz;
+
+				if(0.0 == r2) continue;
+
+				double ri = 1.0 / sqrt(r2);
+
+				double mri = body[j].m * ri;
+				double ri2 = ri * ri;
+
+				double mri3 = mri * ri2;
+				double u = r2 * ri * epsinv;
+
+				mri3 *= acut(u);
+				mri  *= pcut(u);
+
+				ax += mri3 * dx;
+				ay += mri3 * dy;
+				az += mri3 * dz;
+				pot -= mri;
+			}
+			acc[i+ii].ax  += ax;
+			acc[i+ii].ay  += ay;
+			acc[i+ii].az  += az;
+			acc[i+ii].pot += pot;
+		}
+	}
+}
+
+
 
 #if 0
 void prlong(long l){
@@ -313,6 +475,7 @@ int main(){
 	};
 
 	verify(nbody_spline_list);
+	verify(nbody_spline_m256d);
 
 	auto warmup = [=](auto kernel, int ntimes=100){
 		for(int j=0; j<ntimes; j++){
@@ -354,6 +517,7 @@ int main(){
 	
 	benchmark(nbody_spline_ref);
 	benchmark(nbody_spline_list);
+	benchmark(nbody_spline_m256d);
 
 	return 0;
 }
