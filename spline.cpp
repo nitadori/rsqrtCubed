@@ -140,6 +140,8 @@ void nbody_spline_list(
 {
 	enum{ LEN = 64, };
 	int list[LEN];
+
+	int len_max=0, len_sum=0;
 	for(int i=0; i<n; i++){ 
 		int num = 0;
 		const double xi=body[i].x, yi=body[i].y, zi=body[i].z;
@@ -172,6 +174,9 @@ void nbody_spline_list(
 		assert(std::isfinite(pot));
 		// printf("%d : %d\n", i, num);
 		assert(num <= LEN);
+
+		len_max = std::max(len_max, num);
+		len_sum += num;
 		for(int jj=0; jj<num; jj++){
 			int j = list[jj];
 
@@ -203,6 +208,7 @@ void nbody_spline_list(
 		assert(std::isfinite(pot));
 		acc[i] = {ax, ay, az, pot};
 	}
+	printf("max: %d, avr: %f\n", len_max, len_sum * (1./n));
 	return ;
 }
 
@@ -256,8 +262,8 @@ void nbody_spline_m256d(
 	const Body body[],
 	Acceleration acc[])
 {
-	enum{ LEN = 64, };
-	int list[4][LEN];
+	enum{ LEN = 16, };
+	int list[4][LEN] __attribute__((aligned(64)));
 
 	const __m256d rcut2 = _mm256_set1_pd(rcut2_sd);
 
@@ -402,7 +408,7 @@ int main(){
 		N = 2048,
 	};
 
-	const double eps = 0.05;
+	const double eps = 0.03;
 	const double epsinv = 1.0 / eps;
 	const double rcut2 = 4.0 * eps * eps;
 
